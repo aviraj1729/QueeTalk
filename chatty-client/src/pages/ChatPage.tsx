@@ -8,6 +8,7 @@ import { GrGroup } from "react-icons/gr";
 import type { FilterType } from "../types/filters";
 const filters = ["All", "Unread", "Favourites", "Groups"] as const;
 import { MdOutlineGroupAdd } from "react-icons/md";
+import { IoMdArrowBack } from "react-icons/io";
 import { LuLogOut } from "react-icons/lu";
 import {
   getUserChats,
@@ -47,7 +48,9 @@ const MESSAGE_DELETE_EVENT = "messageDeleted";
 
 const ChatPage = () => {
   const { user, logout } = useAuth();
-  const otpions = [
+  const { socket } = useSocket();
+
+  const options = [
     { id: "New Group", icon: <MdOutlineGroupAdd size={16} /> },
     { id: "Log Out", icon: <LuLogOut size={16} /> },
   ];
@@ -55,6 +58,28 @@ const ChatPage = () => {
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+
+  const currentChat = useRef<ChatListItemInterface | null>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [isConnected, setIsConnected] = useState(false);
+  const [openAddChat, setOpenAddChat] = useState(false);
+  const [loadingChats, setLoadingChats] = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+
+  const [chats, setChats] = useState<ChatListItemInterface[]>([]);
+  const [messages, setMessages] = useState<ChatMessageInterface[]>([]);
+  const [unreadMessages, setUnreadMessages] = useState<ChatMessageInterface[]>(
+    [],
+  );
+  const [isTyping, setIsTyping] = useState(false);
+  const [selftyping, setSelfTyping] = useState(false);
+  const [message, setMessage] = useState("");
+  const [localSearchQuerry, setLocalSearchQuerry] = useState("");
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [filter, setFilter] = useState<
+    "All" | "Unread" | "Favourites" | "Groups"
+  >("All");
 
   // Close dropdown if clicked outside
   useEffect(() => {
@@ -70,6 +95,31 @@ const ChatPage = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Handle ESC key to close chat
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeCurrentChat();
+      }
+    };
+
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, []);
+
+  const closeCurrentChat = () => {
+    if (currentChat.current?._id && socket) {
+      socket.emit(LEAVE_CHAT_EVENT, currentChat.current._id);
+    }
+    currentChat.current = null;
+    LocalStorage.remove("currentChat");
+    setMessages([]);
+    setMessage("");
+    setAttachedFiles([]);
+    setIsTyping(false);
+    setSelfTyping(false);
+  };
+
   const handleOptionClick = (id: string) => {
     if (id === "Log Out") {
       logout();
@@ -78,35 +128,8 @@ const ChatPage = () => {
     }
     setShowDropdown(false);
   };
-  console.log(user);
-  const { socket } = useSocket();
-
-  const currentChat = useRef<ChatListItemInterface | null>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Fixed: NodeJS.Timeout
-
-  const [isConnected, setIsConnected] = useState(false);
-  const [openAddChat, setOpenAddChat] = useState(false);
-  const [loadingChats, setLoadingChats] = useState(false);
-  const [loadingMessages, setLoadingMessages] = useState(false);
-
-  const [chats, setChats] = useState<ChatListItemInterface[]>([]);
-  const [messages, setMessages] = useState<ChatMessageInterface[]>([]);
-  const [unreadMessages, setUnreadMessages] = useState<ChatMessageInterface[]>(
-    [],
-  );
-  console.log("messages", messages);
-  const [isTyping, setIsTyping] = useState(false);
-  const [selftyping, setSelfTyping] = useState(false);
-  const [message, setMessage] = useState("");
-  const [localSearchQuerry, setLocalSearchQuerry] = useState("");
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-
-  const [filter, setFilter] = useState<
-    "All" | "Unread" | "Favourites" | "Groups"
-  >("All");
 
   const onFilterChange = (item: "All" | "Unread" | "Favourites" | "Groups") => {
-    // Fixed: Added type
     setFilter(item);
   };
 
@@ -159,7 +182,7 @@ const ChatPage = () => {
     if (!currentChat.current?._id) return alert("no Chat is selected");
     if (!socket) return alert("Socket not available");
 
-    socket.emit(JOIN_CHAT_EVENT, currentChat.current?._id);
+    socket.emit(JOIN_CHAT_EVENT, currentChat.current._id);
     setUnreadMessages(
       unreadMessages.filter((msg) => msg.chat !== currentChat.current?._id),
     );
@@ -175,7 +198,6 @@ const ChatPage = () => {
   };
 
   const sendChatMessage = async () => {
-    // Fixed: Added validation checks
     if (!message.trim() && attachedFiles.length === 0) {
       alert("Please enter a message or attach files");
       return;
@@ -191,7 +213,7 @@ const ChatPage = () => {
       return;
     }
 
-    socket.emit(STOP_TYPING_EVENT, currentChat.current?._id);
+    socket.emit(STOP_TYPING_EVENT, currentChat.current._id);
 
     await requestHandler(
       async () =>
@@ -213,7 +235,7 @@ const ChatPage = () => {
 
   const deleteChatMessage = async (message: ChatMessageInterface) => {
     await requestHandler(
-      async () => await deleteMessage(message.chat, message._id), // Fixed: Use message._id instead of message.id
+      async () => await deleteMessage(message.chat, message._id),
       null,
       (res) => {
         setMessages((prev) => prev.filter((msg) => msg._id !== res.data._id));
@@ -224,9 +246,8 @@ const ChatPage = () => {
   };
 
   const handleOnMessageChange = (value: string) => {
-    // Fixed: Changed parameter type
     setMessage(value);
-    if (!socket || !isConnected) return; // Fixed: Check isConnected instead of !isConnected
+    if (!socket || !isConnected) return;
 
     if (!selftyping) {
       setSelfTyping(true);
@@ -246,6 +267,7 @@ const ChatPage = () => {
   const onConnect = () => {
     setIsConnected(true);
   };
+
   const onDisconnect = () => {
     setIsConnected(false);
   };
@@ -254,6 +276,7 @@ const ChatPage = () => {
     if (chatId !== currentChat.current?._id) return;
     setIsTyping(true);
   };
+
   const handleOnSocketStopTyping = (chatId: string) => {
     if (chatId !== currentChat.current?._id) return;
     setIsTyping(false);
@@ -271,8 +294,6 @@ const ChatPage = () => {
   };
 
   const onMessageReceived = (message: ChatMessageInterface) => {
-    console.log(`Message received ${message}`);
-
     if (message?.chat !== currentChat.current?._id) {
       setUnreadMessages((prev) => [message, ...prev]);
     } else {
@@ -287,8 +308,7 @@ const ChatPage = () => {
 
   const onChatLeave = (chat: ChatListItemInterface) => {
     if (chat._id === currentChat.current?._id) {
-      currentChat.current = null;
-      LocalStorage.remove("currentChat");
+      closeCurrentChat();
     }
     setChats((prev) => prev.filter((c) => c._id !== chat._id));
   };
@@ -308,18 +328,27 @@ const ChatPage = () => {
     ]);
   };
 
+  // Initialize chats and restore current chat from localStorage
   useEffect(() => {
     getChats();
-    const _currentChat = LocalStorage.get("currentChat");
-    if (_currentChat) {
-      currentChat.current = _currentChat;
-      socket?.emit(JOIN_CHAT_EVENT, _currentChat._id); // Fixed: Use _currentChat._id
-      getMessages();
-    }
   }, []);
 
+  // Handle socket connection and restore current chat when socket is ready
+  useEffect(() => {
+    if (socket && isConnected) {
+      const _currentChat = LocalStorage.get("currentChat");
+      if (_currentChat && !currentChat.current) {
+        currentChat.current = _currentChat;
+        socket.emit(JOIN_CHAT_EVENT, _currentChat._id);
+        getMessages();
+      }
+    }
+  }, [socket, isConnected]);
+
+  // Socket event listeners
   useEffect(() => {
     if (!socket) return;
+
     socket.on(CONNECTED_EVENT, onConnect);
     socket.on(DISCONNECT_EVENT, onDisconnect);
     socket.on(TYPING_EVENT, handleOnSocketTyping);
@@ -366,7 +395,7 @@ const ChatPage = () => {
 
               {showDropdown && (
                 <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-gray-800 text-black dark:text-white text-sm shadow-lg rounded-lg overflow-hidden z-50">
-                  {otpions.map((option) => (
+                  {options.map((option) => (
                     <button
                       key={option.id}
                       className={`block px-3 py-2 w-full text-left transition-colors ${
@@ -387,10 +416,13 @@ const ChatPage = () => {
             </div>
           </div>
         </div>
+
         <FormInput
           type="text"
-          className="w-full bg-transparent rounded-full outline-none"
+          className="w-full bg-transparent rounded-full outline-green-500"
           placeholder="Search or start a new chat"
+          value={localSearchQuerry}
+          onChange={(e) => setLocalSearchQuerry(e.target.value)}
           icon={<IoMdSearch className="w-5 h-5" />}
         />
 
@@ -407,6 +439,7 @@ const ChatPage = () => {
             </Button>
           ))}
         </div>
+
         {/* chats listing begins */}
         {loadingChats ? (
           <div className="flex justify-center items-center h-[calc(100%-88px)]">
@@ -417,8 +450,8 @@ const ChatPage = () => {
             .filter((chat) =>
               localSearchQuerry
                 ? getChatObjectMetadata(chat, user!)
-                    .title?.toLocaleLowerCase()
-                    ?.includes(localSearchQuerry)
+                    .title?.toLowerCase()
+                    ?.includes(localSearchQuerry.toLowerCase())
                 : true,
             )
             .map((chat) => {
@@ -435,9 +468,10 @@ const ChatPage = () => {
                       currentChat.current._id === chat._id
                     )
                       return;
-                    currentChat.current = chat; // Fixed: Set currentChat.current
+                    currentChat.current = chat;
                     LocalStorage.set("currentChat", chat);
                     setMessage("");
+                    setAttachedFiles([]);
                     getMessages();
                   }}
                   key={chat._id}
@@ -448,8 +482,7 @@ const ChatPage = () => {
                       prev.filter((chat) => chat._id !== chatId),
                     );
                     if (currentChat.current?._id === chatId) {
-                      currentChat.current = null;
-                      LocalStorage.remove("currentChat");
+                      closeCurrentChat();
                     }
                   }}
                 />
@@ -457,11 +490,20 @@ const ChatPage = () => {
             })
         )}
       </div>
+
       <div className="w-full overflow-y-hidden">
         {currentChat.current && currentChat.current?._id ? (
           <>
-            <div className="p-4 sticky top-0 z-20 flex justify-between items-center w-full border-b-4 border-gray-800">
+            <div className="p-4 sticky top-0 z-20 flex justify-between group items-center w-full border-b-4 border-gray-800">
               <div className="flex justify-start items-center w-max gap-3">
+                <Button
+                  variant="icon"
+                  onClick={closeCurrentChat}
+                  className="rounded-full bg-gray-500 hover:bg-gray-600 transition-colors"
+                >
+                  <IoMdArrowBack className="w-6 h-6 text-white" />
+                </Button>
+
                 {currentChat.current.isGroupChat ? (
                   <div className="w-12 relative h-12 flex-shrink-0 flex justify-start items-center flex-nowrap">
                     {currentChat.current.participants
@@ -506,6 +548,7 @@ const ChatPage = () => {
                 </div>
               </div>
             </div>
+
             <div
               className={classNames(
                 "p-8 overflow-y-auto flex flex-col-reverse gap-6 w-full",
@@ -536,6 +579,7 @@ const ChatPage = () => {
                 </>
               )}
             </div>
+
             {attachedFiles.length > 0 ? (
               <div className="grid gap-4 grid-cols-5 p-4 justify-start max-w-fit">
                 {attachedFiles.map((file, i) => {
@@ -544,7 +588,7 @@ const ChatPage = () => {
                       className="group w-32 h-32 relative aspect-square rounded-xl cursor-pointer"
                       key={i}
                     >
-                      <div className="absolute inset-0 flex justify-center items center w-full group-hover:opacity-100 opacity-0 transition-opacity ease-in-out duration-150">
+                      <div className="absolute inset-0 flex justify-center items-center w-full group-hover:opacity-100 opacity-0 transition-opacity ease-in-out duration-150">
                         <button
                           onClick={() => {
                             setAttachedFiles(
@@ -566,12 +610,16 @@ const ChatPage = () => {
                 })}
               </div>
             ) : null}
+
             <div className="sticky top-full p-4 flex justify-between items-center w-full gap-2 border-t-1 border-gray-800">
               <MessageBox
                 onMessageChange={handleOnMessageChange}
                 message={message}
                 onSend={sendChatMessage}
-                chatId={currentChat.current._id} // Fixed: Added missing chatId prop
+                chatId={currentChat.current._id}
+                attachedFiles={attachedFiles}
+                setAttachedFiles={setAttachedFiles}
+                onTyping={isTyping}
               />
             </div>
           </>

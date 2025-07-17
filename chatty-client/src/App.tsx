@@ -22,7 +22,7 @@ const App = () => {
   return (
     <ThemeProvider>
       <SocketProvider>
-        <div className="h-screen w-full text-black dark:text-white bg-white dark:bg-gray-900">
+        <div className="h-screen w-screen text-black overflow-hidden dark:text-white bg-white dark:bg-gray-900">
           <Layout />
         </div>
       </SocketProvider>

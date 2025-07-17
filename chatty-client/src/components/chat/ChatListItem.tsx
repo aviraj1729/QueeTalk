@@ -88,7 +88,7 @@ const ChatListItem: React.FC<{
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isDropdownOpen, onDropdownToggle]);
+  }, [isDropdownOpen]);
 
   if (!chat) return null;
 
@@ -98,11 +98,8 @@ const ChatListItem: React.FC<{
         role="button"
         onClick={() => onClick(chat)}
         className={classNames(
-          "group p-4 my-2 flex justify-between gap-3 items-start cursor-pointer rounded-3xl hover:bg-secondary",
-          isActive ? "border-[1px] border-zinc-500 bg-secondary" : "",
-          unreadCount > 0
-            ? "border-[1px] border-success bg-success/20 font-bold"
-            : "",
+          "group p-4 my-2 flex justify-between gap-3 items-start cursor-pointer rounded-3xl",
+          isActive ? "bg-gray-800" : "hover:bg-gray-800",
         )}
       >
         {/* Avatar */}
@@ -114,7 +111,7 @@ const ChatListItem: React.FC<{
                   key={p._id}
                   src={p.avatar.url}
                   className={classNames(
-                    "w-8 h-8 border-[1px] border-white rounded-full absolute outline outline-4 outline-dark group-hover:outline-secondary",
+                    "w-8 h-8 border-[1px] border-white rounded-full absolute outline outline-4 outline-dark",
                     i === 0
                       ? "left-0 z-[3]"
                       : i === 1
@@ -134,62 +131,62 @@ const ChatListItem: React.FC<{
 
         {/* Message preview */}
         <div className="w-full">
-          <p className="truncate-1">
-            {getChatObjectMetadata(chat, user!).title}
-          </p>
-          <div className="w-full inline-flex items-center text-left">
-            {chat.lastMessage && chat.lastMessage.attachments.length > 0 && (
-              <MdAttachFile className="text-white/50 h-3 w-3 mr-2 flex-shrink-0" />
-            )}
-            <small className="text-white/50 truncate-1 text-sm">
-              {getChatObjectMetadata(chat, user!).lastMessage}
+          <div className="flex justify-between">
+            <p className="truncate">
+              {getChatObjectMetadata(chat, user!).title}
+            </p>
+            <small className={`${unreadCount > 0 ? "text-green-500" : ""}`}>
+              {formatMessageTime(chat.updatedAt)}
             </small>
           </div>
-        </div>
-
-        {/* Right panel: time + actions */}
-        <div className="flex h-full text-sm flex-col justify-between items-end gap-2">
-          <small>{formatMessageTime(chat.updatedAt)}</small>
-
-          <div className="relative">
-            <button
-              ref={buttonRef}
-              onClick={toggleOptions}
-              className="p-1 rounded-full hover:bg-black/20 transition-colors"
-            >
-              <IoIosArrowDown className="w-4 h-4" />
-            </button>
-
-            {isDropdownOpen && (
-              <div
-                ref={dropdownRef}
-                className="absolute top-full mt-1 bg-white dark:bg-gray-800 text-black dark:text-white text-sm shadow-lg rounded-md overflow-hidden z-50 min-w-[150px]"
+          <div className="flex justify-between">
+            <div className="w-full flex justify-between">
+              {chat.lastMessage && chat.lastMessage.attachments.length > 0 && (
+                <MdAttachFile className="h-3 w-3 mr-2 flex-shrink-0" />
+              )}
+              <small
+                className={`truncate text-md ${unreadCount > 0 ? "text-green-500" : ""}`}
               >
-                {options.map((option) => (
-                  <button
-                    key={option.id}
-                    onClick={() => handleOptionClick(option.id)}
-                    className={`block px-3 py-2 w-full text-left transition-colors ${
-                      option.id === "Exit Group"
-                        ? "hover:bg-red-100 dark:hover:bg-red-900 hover:text-red-800 dark:hover:text-red-200"
-                        : "hover:bg-gray-100 dark:hover:bg-gray-700"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      {option.icon}
-                      <span>{option.id}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
+                {getChatObjectMetadata(chat, user!).lastMessage}
+              </small>
+            </div>
+            {unreadCount > 0 && (
+              <span className="bg-green-500 h-2 w-2 flex-shrink-0 p-2 text-white text-base rounded-full inline-flex justify-center items-center">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
             )}
-          </div>
+            <div className="relative">
+              <button
+                ref={buttonRef}
+                onClick={toggleOptions}
+                className="group-hover:block hidden p-1 rounded-full hover:bg-black/20 transition-colors"
+              >
+                <IoIosArrowDown className="w-4 h-4" />
+              </button>
 
-          {unreadCount > 0 && (
-            <span className="bg-success h-2 w-2 aspect-square flex-shrink-0 p-2 text-white text-xs rounded-full inline-flex justify-center items-center">
-              {unreadCount > 9 ? "9+" : unreadCount}
-            </span>
-          )}
+              {isDropdownOpen && (
+                <div className="absolute mt-1 bg-white dark:bg-gray-800 text-black dark:text-white text-sm shadow-lg rounded-md overflow-hidden z-50 min-w-[150px]">
+                  {options.map((option) => (
+                    <button
+                      ref={dropdownRef}
+                      key={option.id}
+                      onClick={() => handleOptionClick(option.id)}
+                      className={`block px-3 py-2 w-full text-left transition-colors ${
+                        option.id === "Exit"
+                          ? "hover:bg-red-100 dark:hover:bg-red-900 hover:text-red-800 dark:hover:text-red-200"
+                          : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {option.icon}
+                        <span>{option.id}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </>

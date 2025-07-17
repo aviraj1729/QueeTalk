@@ -107,7 +107,7 @@ const MessageComponent: React.FC<{
             <button
               ref={buttonRef}
               onClick={toggleOptions}
-              className={`p-1 rounded-full hover:bg-black/20 transition-colors group-hover:opacity-100 opacity-0 ${
+              className={`p-1 rounded-full transition-colors group-hover:opacity-100 opacity-0 ${
                 isOwnMessage ? "text-white" : "text-gray-600 dark:text-gray-300"
               }`}
             >

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { MdOutlineChat } from "react-icons/md";
-import { MdUpdate } from "react-icons/md";
+import { RiImageCircleAiFill } from "react-icons/ri";
 import { GoGear } from "react-icons/go";
 import { CgProfile } from "react-icons/cg";
 import Button from "./Button";
@@ -13,7 +13,7 @@ type Props = {
 const Sidebar = ({ currentTab, onTabChange }: Props) => {
   const topItems = [
     { id: "chat", icon: <MdOutlineChat size={24} />, label: "chat" },
-    { id: "status", icon: <MdUpdate size={24} />, label: "status" },
+    { id: "status", icon: <RiImageCircleAiFill size={24} />, label: "status" },
   ];
 
   const bottomItems = [
