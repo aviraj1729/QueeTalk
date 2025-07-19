@@ -1,18 +1,21 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { BsThreeDotsVertical } from "react-icons/bs";
 import { RiChatNewLine } from "react-icons/ri";
-import Button from "../components/Button";
-import { IoMdSearch } from "react-icons/io";
-import FormInput from "../components/FormInput";
-import { GrGroup } from "react-icons/gr";
-import type { FilterType } from "../types/filters";
-const filters = ["All", "Unread", "Favourites", "Groups"] as const;
+import { IoMdSearch, IoMdArrowBack } from "react-icons/io";
 import { MdOutlineGroupAdd } from "react-icons/md";
-import { IoMdArrowBack } from "react-icons/io";
 import { LuLogOut } from "react-icons/lu";
+import { FiXCircle } from "react-icons/fi";
+
+import Button from "../components/Button";
+import FormInput from "../components/FormInput";
+import Typing from "../components/chat/Typing";
+import ChatListItem from "../components/chat/ChatListItem";
+import MessageComponent from "../components/chat/MessageComponent";
+import MessageBox from "../components/chat/MessageBox";
+import AddChat from "../components/chat/AddChat";
+
 import {
   getUserChats,
-  getMessages,
   getChatMessages,
   sendMessage,
   deleteMessage,
@@ -29,87 +32,103 @@ import {
   getChatObjectMetadata,
   requestHandler,
 } from "../utils";
-import Typing from "../components/chat/Typing";
-import ChatListItem from "../components/chat/ChatListItem";
-import MessageComponent from "../components/chat/MessageComponent";
-import { FiXCircle } from "react-icons/fi";
-import MessageBox from "../components/chat/MessageBox";
 
-const CONNECTED_EVENT = "connected";
-const DISCONNECT_EVENT = "disconnect";
-const JOIN_CHAT_EVENT = "joinChat";
-const NEW_CHAT_EVENT = "newChat";
-const TYPING_EVENT = "typing";
-const STOP_TYPING_EVENT = "stopTyping";
-const MESSAGE_RECEIVED_EVENT = "messageReceived";
-const LEAVE_CHAT_EVENT = "leaveChat";
-const UPDATE_GROUP_NAME_EVENT = "updateGroupName";
-const MESSAGE_DELETE_EVENT = "messageDeleted";
+// Constants
+const SOCKET_EVENTS = {
+  CONNECTED: "connected",
+  DISCONNECT: "disconnect",
+  JOIN_CHAT: "joinChat",
+  NEW_CHAT: "newChat",
+  TYPING: "typing",
+  STOP_TYPING: "stopTyping",
+  MESSAGE_RECEIVED: "messageReceived",
+  LEAVE_CHAT: "leaveChat",
+  UPDATE_GROUP_NAME: "updateGroupName",
+  MESSAGE_DELETE: "messageDeleted",
+} as const;
+
+const FILTERS = ["All", "Unread", "Favourites", "Groups"] as const;
+const TYPING_TIMEOUT = 3000;
+
+type FilterType = (typeof FILTERS)[number];
 
 const ChatPage = () => {
   const { user, logout } = useAuth();
   const { socket } = useSocket();
 
-  const options = [
-    { id: "New Group", icon: <MdOutlineGroupAdd size={16} /> },
-    { id: "Log Out", icon: <LuLogOut size={16} /> },
-  ];
-
-  const [showDropdown, setShowDropdown] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
-
+  // Refs
   const currentChat = useRef<ChatListItemInterface | null>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const [isConnected, setIsConnected] = useState(false);
+  // UI State
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [openAddChat, setOpenAddChat] = useState(false);
+  const [filter, setFilter] = useState<FilterType>("All");
+  const [localSearchQuery, setLocalSearchQuery] = useState("");
+
+  // Loading States
   const [loadingChats, setLoadingChats] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
 
+  // Socket State
+  const [isConnected, setIsConnected] = useState(false);
+
+  // Chat State
   const [chats, setChats] = useState<ChatListItemInterface[]>([]);
   const [messages, setMessages] = useState<ChatMessageInterface[]>([]);
   const [unreadMessages, setUnreadMessages] = useState<ChatMessageInterface[]>(
     [],
   );
   const [isTyping, setIsTyping] = useState(false);
-  const [selftyping, setSelfTyping] = useState(false);
+  const [selfTyping, setSelfTyping] = useState(false);
   const [message, setMessage] = useState("");
-  const [localSearchQuerry, setLocalSearchQuerry] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-  const [filter, setFilter] = useState<
-    "All" | "Unread" | "Favourites" | "Groups"
-  >("All");
 
-  // Close dropdown if clicked outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
-      ) {
-        setShowDropdown(false);
+  // Memoized values
+  const options = useMemo(
+    () => [
+      { id: "New Group", icon: <MdOutlineGroupAdd size={16} /> },
+      { id: "Log Out", icon: <LuLogOut size={16} /> },
+    ],
+    [],
+  );
+
+  const filteredChats = useMemo(() => {
+    if (!user) return [];
+
+    return chats.filter((chat) => {
+      // Apply search filter
+      if (localSearchQuery) {
+        const chatTitle = getChatObjectMetadata(
+          chat,
+          user,
+        ).title?.toLowerCase();
+        if (!chatTitle?.includes(localSearchQuery.toLowerCase())) {
+          return false;
+        }
       }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
-  // Handle ESC key to close chat
-  useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        closeCurrentChat();
+      // Apply type filter
+      switch (filter) {
+        case "Groups":
+          return chat.isGroupChat;
+        case "Unread":
+          return unreadMessages.some((msg) => msg.chat === chat._id);
+        case "Favourites":
+          // Add logic for favorites when implemented
+          return true;
+        default:
+          return true;
       }
-    };
+    });
+  }, [chats, localSearchQuery, filter, unreadMessages, user]);
 
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
-  }, []);
-
-  const closeCurrentChat = () => {
+  // Callbacks
+  const closeCurrentChat = useCallback(() => {
     if (currentChat.current?._id && socket) {
-      socket.emit(LEAVE_CHAT_EVENT, currentChat.current._id);
+      socket.emit(SOCKET_EVENTS.LEAVE_CHAT, currentChat.current._id);
     }
     currentChat.current = null;
     LocalStorage.remove("currentChat");
@@ -118,86 +137,116 @@ const ChatPage = () => {
     setAttachedFiles([]);
     setIsTyping(false);
     setSelfTyping(false);
-  };
+  }, [socket]);
 
-  const handleOptionClick = (id: string) => {
-    if (id === "Log Out") {
-      logout();
-    } else if (id === "New Group") {
-      alert("Open New Group Modal");
-    }
-    setShowDropdown(false);
-  };
+  const handleOptionClick = useCallback(
+    (id: string) => {
+      if (id === "Log Out") {
+        logout();
+      } else if (id === "New Group") {
+        // TODO: Open new group modal
+        alert("Open New Group Modal");
+      }
+      setShowDropdown(false);
+    },
+    [logout],
+  );
 
-  const onFilterChange = (item: "All" | "Unread" | "Favourites" | "Groups") => {
-    setFilter(item);
-  };
+  const updateChatLastMessage = useCallback(
+    (chatId: string, newMessage: ChatMessageInterface) => {
+      setChats((prevChats) => {
+        const chatIndex = prevChats.findIndex((chat) => chat._id === chatId);
+        if (chatIndex === -1) return prevChats;
 
-  const updateChatLastMessage = (
-    chatToUpdateId: string,
-    message: ChatMessageInterface,
-  ) => {
-    const chatToUpdate = chats.find((chat) => chat._id === chatToUpdateId)!;
-    chatToUpdate.lastMessage = message;
-    chatToUpdate.updatedAt = message?.updatedAt;
+        const updatedChat = {
+          ...prevChats[chatIndex],
+          lastMessage: newMessage,
+          updatedAt: newMessage.updatedAt,
+        };
 
-    setChats([
-      chatToUpdate,
-      ...chats.filter((chat) => chat._id !== chatToUpdateId),
-    ]);
-  };
+        // Move updated chat to top
+        return [
+          updatedChat,
+          ...prevChats.filter((_, index) => index !== chatIndex),
+        ];
+      });
+    },
+    [],
+  );
 
-  const updateChatLastMessageOnDeletion = (
-    chatToUpdateId: string,
-    message: ChatMessageInterface,
-  ) => {
-    const chatToUpdate = chats.find((chat) => chat._id === chatToUpdateId)!;
-    if (chatToUpdate.lastMessage?._id === message._id) {
-      requestHandler(
-        async () => getChatMessages(chatToUpdateId),
-        null,
-        (req) => {
-          const { data } = req;
-          chatToUpdate.lastMessage = data[0];
-          setChats([...chats]);
-        },
-        alert,
-      );
-    }
-  };
+  const updateChatLastMessageOnDeletion = useCallback(
+    async (chatId: string, deletedMessage: ChatMessageInterface) => {
+      setChats((prevChats) => {
+        const chatToUpdate = prevChats.find((chat) => chat._id === chatId);
+        if (
+          !chatToUpdate ||
+          chatToUpdate.lastMessage?._id !== deletedMessage._id
+        ) {
+          return prevChats;
+        }
 
-  const getChats = async () => {
-    requestHandler(
-      async () => await getUserChats(),
+        // Fetch new last message
+        requestHandler(
+          () => getChatMessages(chatId),
+          null,
+          (response) => {
+            const { data } = response;
+            setChats((currentChats) =>
+              currentChats.map((chat) =>
+                chat._id === chatId ? { ...chat, lastMessage: data[0] } : chat,
+              ),
+            );
+          },
+          alert,
+        );
+
+        return prevChats;
+      });
+    },
+    [],
+  );
+
+  const getChats = useCallback(async () => {
+    await requestHandler(
+      getUserChats,
       setLoadingChats,
-      (res) => {
-        const { data } = res;
+      (response) => {
+        const { data } = response;
         setChats(data || []);
       },
       alert,
     );
-  };
+  }, []);
 
-  const getMessages = async () => {
-    if (!currentChat.current?._id) return alert("no Chat is selected");
-    if (!socket) return alert("Socket not available");
+  const getMessages = useCallback(async () => {
+    if (!currentChat.current?._id) {
+      alert("No chat is selected");
+      return;
+    }
+    if (!socket) {
+      alert("Socket not available");
+      return;
+    }
 
-    socket.emit(JOIN_CHAT_EVENT, currentChat.current._id);
-    setUnreadMessages(
-      unreadMessages.filter((msg) => msg.chat !== currentChat.current?._id),
+    socket.emit(SOCKET_EVENTS.JOIN_CHAT, currentChat.current._id);
+
+    // Clear unread messages for current chat
+    setUnreadMessages((prev) =>
+      prev.filter((msg) => msg.chat !== currentChat.current?._id),
     );
-    requestHandler(
-      async () => await getChatMessages(currentChat.current?._id || ""),
+
+    await requestHandler(
+      () => getChatMessages(currentChat.current?._id || ""),
       setLoadingMessages,
-      (res) => {
-        const { data } = res;
+      (response) => {
+        const { data } = response;
         setMessages(data || []);
       },
       alert,
     );
-  };
+  }, [socket]);
 
-  const sendChatMessage = async () => {
+  const sendChatMessage = useCallback(async () => {
     if (!message.trim() && attachedFiles.length === 0) {
       alert("Please enter a message or attach files");
       return;
@@ -213,175 +262,355 @@ const ChatPage = () => {
       return;
     }
 
-    socket.emit(STOP_TYPING_EVENT, currentChat.current._id);
+    socket.emit(SOCKET_EVENTS.STOP_TYPING, currentChat.current._id);
 
     await requestHandler(
-      async () =>
-        await sendMessage(
-          currentChat.current?._id || "",
-          message,
-          attachedFiles,
-        ),
+      () => sendMessage(currentChat.current?._id || "", message, attachedFiles),
       null,
-      (res) => {
+      (response) => {
+        const newMessage = response.data;
         setMessage("");
         setAttachedFiles([]);
-        setMessages((prev) => [res.data, ...prev]);
-        updateChatLastMessage(currentChat.current?._id || "", res.data);
+        setMessages((prev) => [newMessage, ...prev]);
+        updateChatLastMessage(currentChat.current?._id || "", newMessage);
       },
       alert,
     );
-  };
+  }, [message, attachedFiles, socket, updateChatLastMessage]);
 
-  const deleteChatMessage = async (message: ChatMessageInterface) => {
-    await requestHandler(
-      async () => await deleteMessage(message.chat, message._id),
-      null,
-      (res) => {
-        setMessages((prev) => prev.filter((msg) => msg._id !== res.data._id));
-        updateChatLastMessageOnDeletion(message.chat, message);
-      },
-      alert,
-    );
-  };
-
-  const handleOnMessageChange = (value: string) => {
-    setMessage(value);
-    if (!socket || !isConnected) return;
-
-    if (!selftyping) {
-      setSelfTyping(true);
-      socket.emit(TYPING_EVENT, currentChat.current?._id);
-    }
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-    const timerLength = 3000;
-
-    typingTimeoutRef.current = setTimeout(() => {
-      socket.emit(STOP_TYPING_EVENT, currentChat.current?._id);
-      setSelfTyping(false);
-    }, timerLength);
-  };
-
-  const onConnect = () => {
-    setIsConnected(true);
-  };
-
-  const onDisconnect = () => {
-    setIsConnected(false);
-  };
-
-  const handleOnSocketTyping = (chatId: string) => {
-    if (chatId !== currentChat.current?._id) return;
-    setIsTyping(true);
-  };
-
-  const handleOnSocketStopTyping = (chatId: string) => {
-    if (chatId !== currentChat.current?._id) return;
-    setIsTyping(false);
-  };
-
-  const onMessageDelete = (message: ChatMessageInterface) => {
-    if (message?.chat !== currentChat.current?._id) {
-      setUnreadMessages((prev) =>
-        prev.filter((msg) => msg._id !== message._id),
+  const deleteChatMessage = useCallback(
+    async (messageToDelete: ChatMessageInterface) => {
+      await requestHandler(
+        () => deleteMessage(messageToDelete.chat, messageToDelete._id),
+        null,
+        (response) => {
+          setMessages((prev) =>
+            prev.filter((msg) => msg._id !== response.data._id),
+          );
+          updateChatLastMessageOnDeletion(
+            messageToDelete.chat,
+            messageToDelete,
+          );
+        },
+        alert,
       );
-    } else {
-      setMessages((prev) => prev.filter((msg) => msg._id !== message._id));
-    }
-    updateChatLastMessageOnDeletion(message.chat, message);
-  };
+    },
+    [updateChatLastMessageOnDeletion],
+  );
 
-  const onMessageReceived = (message: ChatMessageInterface) => {
-    if (message?.chat !== currentChat.current?._id) {
-      setUnreadMessages((prev) => [message, ...prev]);
-    } else {
-      setMessages((prev) => [message, ...prev]);
-    }
-    updateChatLastMessage(message.chat || "", message);
-  };
+  const handleOnMessageChange = useCallback(
+    (value: string) => {
+      setMessage(value);
 
-  const onNewChat = (chat: ChatListItemInterface) => {
-    setChats((prev) => [chat, ...prev]);
-  };
+      if (!socket || !isConnected) return;
 
-  const onChatLeave = (chat: ChatListItemInterface) => {
-    if (chat._id === currentChat.current?._id) {
-      closeCurrentChat();
-    }
-    setChats((prev) => prev.filter((c) => c._id !== chat._id));
-  };
+      if (!selfTyping) {
+        setSelfTyping(true);
+        socket.emit(SOCKET_EVENTS.TYPING, currentChat.current?._id);
+      }
 
-  const onGroupNameChange = (chat: ChatListItemInterface) => {
-    if (chat._id === currentChat.current?._id) {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      typingTimeoutRef.current = setTimeout(() => {
+        socket.emit(SOCKET_EVENTS.STOP_TYPING, currentChat.current?._id);
+        setSelfTyping(false);
+      }, TYPING_TIMEOUT);
+    },
+    [socket, isConnected, selfTyping],
+  );
+
+  const selectChat = useCallback(
+    (chat: ChatListItemInterface) => {
+      if (currentChat.current?._id === chat._id) return;
+
       currentChat.current = chat;
       LocalStorage.set("currentChat", chat);
-    }
-    setChats((prev) => [
-      ...prev.map((c) => {
-        if (c._id === chat._id) {
-          return chat;
-        }
-        return c;
-      }),
-    ]);
-  };
+      setMessage("");
+      setAttachedFiles([]);
+      getMessages();
+    },
+    [getMessages],
+  );
 
-  // Initialize chats and restore current chat from localStorage
-  useEffect(() => {
-    getChats();
+  const removeAttachedFile = useCallback((index: number) => {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  // Handle socket connection and restore current chat when socket is ready
+  const handleChatDelete = useCallback(
+    (chatId: string) => {
+      setChats((prev) => prev.filter((chat) => chat._id !== chatId));
+      if (currentChat.current?._id === chatId) {
+        closeCurrentChat();
+      }
+    },
+    [closeCurrentChat],
+  );
+
+  // Socket event handlers
+  const onConnect = useCallback(() => setIsConnected(true), []);
+  const onDisconnect = useCallback(() => setIsConnected(false), []);
+
+  const handleOnSocketTyping = useCallback((chatId: string) => {
+    if (chatId === currentChat.current?._id) {
+      setIsTyping(true);
+    }
+  }, []);
+
+  const handleOnSocketStopTyping = useCallback((chatId: string) => {
+    if (chatId === currentChat.current?._id) {
+      setIsTyping(false);
+    }
+  }, []);
+
+  const onMessageReceived = useCallback(
+    (newMessage: ChatMessageInterface) => {
+      if (newMessage.chat === currentChat.current?._id) {
+        setMessages((prev) => [newMessage, ...prev]);
+      } else {
+        setUnreadMessages((prev) => [newMessage, ...prev]);
+      }
+      updateChatLastMessage(newMessage.chat || "", newMessage);
+    },
+    [updateChatLastMessage],
+  );
+
+  const onMessageDelete = useCallback(
+    (deletedMessage: ChatMessageInterface) => {
+      if (deletedMessage.chat === currentChat.current?._id) {
+        setMessages((prev) =>
+          prev.filter((msg) => msg._id !== deletedMessage._id),
+        );
+      } else {
+        setUnreadMessages((prev) =>
+          prev.filter((msg) => msg._id !== deletedMessage._id),
+        );
+      }
+      updateChatLastMessageOnDeletion(deletedMessage.chat, deletedMessage);
+    },
+    [updateChatLastMessageOnDeletion],
+  );
+
+  const onNewChat = useCallback((chat: ChatListItemInterface) => {
+    setChats((prev) => [chat, ...prev]);
+  }, []);
+
+  const onChatLeave = useCallback(
+    (chat: ChatListItemInterface) => {
+      if (chat._id === currentChat.current?._id) {
+        closeCurrentChat();
+      }
+      setChats((prev) => prev.filter((c) => c._id !== chat._id));
+    },
+    [closeCurrentChat],
+  );
+
+  const onGroupNameChange = useCallback(
+    (updatedChat: ChatListItemInterface) => {
+      if (updatedChat._id === currentChat.current?._id) {
+        currentChat.current = updatedChat;
+        LocalStorage.set("currentChat", updatedChat);
+      }
+      setChats((prev) =>
+        prev.map((chat) => (chat._id === updatedChat._id ? updatedChat : chat)),
+      );
+    },
+    [],
+  );
+
+  // Effects
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowDropdown(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeCurrentChat();
+      }
+    };
+
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, [closeCurrentChat]);
+
+  useEffect(() => {
+    getChats();
+  }, [getChats]);
+
   useEffect(() => {
     if (socket && isConnected) {
-      const _currentChat = LocalStorage.get("currentChat");
-      if (_currentChat && !currentChat.current) {
-        currentChat.current = _currentChat;
-        socket.emit(JOIN_CHAT_EVENT, _currentChat._id);
+      const savedChat = LocalStorage.get("currentChat");
+      if (savedChat && !currentChat.current) {
+        currentChat.current = savedChat;
+        socket.emit(SOCKET_EVENTS.JOIN_CHAT, savedChat._id);
         getMessages();
       }
     }
-  }, [socket, isConnected]);
+  }, [socket, isConnected, getMessages]);
 
-  // Socket event listeners
   useEffect(() => {
     if (!socket) return;
 
-    socket.on(CONNECTED_EVENT, onConnect);
-    socket.on(DISCONNECT_EVENT, onDisconnect);
-    socket.on(TYPING_EVENT, handleOnSocketTyping);
-    socket.on(STOP_TYPING_EVENT, handleOnSocketStopTyping);
-    socket.on(MESSAGE_RECEIVED_EVENT, onMessageReceived);
-    socket.on(NEW_CHAT_EVENT, onNewChat);
-    socket.on(LEAVE_CHAT_EVENT, onChatLeave);
-    socket.on(UPDATE_GROUP_NAME_EVENT, onGroupNameChange);
-    socket.on(MESSAGE_DELETE_EVENT, onMessageDelete);
-
-    return () => {
-      socket.off(CONNECTED_EVENT, onConnect);
-      socket.off(DISCONNECT_EVENT, onDisconnect);
-      socket.off(TYPING_EVENT, handleOnSocketTyping);
-      socket.off(STOP_TYPING_EVENT, handleOnSocketStopTyping);
-      socket.off(MESSAGE_RECEIVED_EVENT, onMessageReceived);
-      socket.off(NEW_CHAT_EVENT, onNewChat);
-      socket.off(LEAVE_CHAT_EVENT, onChatLeave);
-      socket.off(UPDATE_GROUP_NAME_EVENT, onGroupNameChange);
-      socket.off(MESSAGE_DELETE_EVENT, onMessageDelete);
+    const eventHandlers = {
+      [SOCKET_EVENTS.CONNECTED]: onConnect,
+      [SOCKET_EVENTS.DISCONNECT]: onDisconnect,
+      [SOCKET_EVENTS.TYPING]: handleOnSocketTyping,
+      [SOCKET_EVENTS.STOP_TYPING]: handleOnSocketStopTyping,
+      [SOCKET_EVENTS.MESSAGE_RECEIVED]: onMessageReceived,
+      [SOCKET_EVENTS.NEW_CHAT]: onNewChat,
+      [SOCKET_EVENTS.LEAVE_CHAT]: onChatLeave,
+      [SOCKET_EVENTS.UPDATE_GROUP_NAME]: onGroupNameChange,
+      [SOCKET_EVENTS.MESSAGE_DELETE]: onMessageDelete,
     };
-  }, [socket, chats]);
+
+    // Register event listeners
+    Object.entries(eventHandlers).forEach(([event, handler]) => {
+      socket.on(event, handler);
+    });
+
+    // Cleanup
+    return () => {
+      Object.entries(eventHandlers).forEach(([event, handler]) => {
+        socket.off(event, handler);
+      });
+    };
+  }, [
+    socket,
+    onConnect,
+    onDisconnect,
+    handleOnSocketTyping,
+    handleOnSocketStopTyping,
+    onMessageReceived,
+    onNewChat,
+    onChatLeave,
+    onGroupNameChange,
+    onMessageDelete,
+  ]);
+
+  // Render helpers
+  const renderChatHeader = () => {
+    if (!currentChat.current || !user) return null;
+
+    const chatMetadata = getChatObjectMetadata(currentChat.current, user);
+
+    return (
+      <div className="p-4 sticky top-0 z-20 flex justify-between items-center w-full border-b-4 border-gray-800">
+        <div className="flex justify-start items-center w-max gap-3">
+          <Button
+            variant="icon"
+            onClick={closeCurrentChat}
+            className="rounded-full bg-gray-500 hover:bg-gray-600 transition-colors"
+          >
+            <IoMdArrowBack className="w-6 h-6 text-white" />
+          </Button>
+
+          {currentChat.current.isGroupChat ? (
+            <div className="w-12 relative h-12 flex-shrink-0 flex justify-start items-center flex-nowrap">
+              {currentChat.current.participants
+                .slice(0, 3)
+                .map((participant, i) => (
+                  <img
+                    key={participant._id}
+                    src={participant.avatar.url}
+                    alt={`Participant ${i + 1}`}
+                    className={classNames(
+                      "w-9 h-9 border-[1px] border-white rounded-full absolute outline outline-4 outline-dark",
+                      i === 0
+                        ? "left-0 z-30"
+                        : i === 1
+                          ? "left-2 z-20"
+                          : "left-4 z-10",
+                    )}
+                  />
+                ))}
+            </div>
+          ) : (
+            <img
+              className="h-14 w-14 rounded-full flex flex-shrink-0 object-cover"
+              src={chatMetadata.avatar}
+              alt="Chat avatar"
+            />
+          )}
+          <div>
+            <p className="font-bold">{chatMetadata.title}</p>
+            <small className="text-zinc-400">{chatMetadata.description}</small>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAttachedFiles = () => {
+    if (attachedFiles.length === 0) return null;
+
+    return (
+      <div className="grid gap-4 grid-cols-5 p-4 justify-start max-w-fit">
+        {attachedFiles.map((file, index) => (
+          <div
+            key={index}
+            className="group w-32 h-32 relative aspect-square rounded-xl cursor-pointer"
+          >
+            <button
+              onClick={() => removeAttachedFile(index)}
+              className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+              aria-label="Remove attachment"
+            >
+              <FiXCircle className="h-5 w-6" />
+            </button>
+            <img
+              className="h-full rounded-xl w-full object-cover"
+              src={URL.createObjectURL(file)}
+              alt={`Attachment ${index + 1}`}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderEmptyState = () => (
+    <div className="flex bg-neutral-100 dark:bg-gray-900 flex-col gap-4 w-full h-full items-center justify-center">
+      <img src="/icon.png" width="150" alt="Chatty logo" />
+      <h1 className="text-4xl font-bold">Chatty</h1>
+      <p className="text-xl">
+        Send and receive messages from friends and groups.
+      </p>
+    </div>
+  );
 
   return (
     <div className="flex h-full w-full">
-      {/* chat list component begins */}
+      <AddChat
+        open={openAddChat}
+        onClose={() => setOpenAddChat(false)}
+        onSuccess={getChats}
+      />
+
+      {/* Chat List Sidebar */}
       <div className="w-fit flex flex-col border-r-4 border-gray-300 dark:border-gray-800 relative p-4 h-full">
+        {/* Header */}
         <div className="flex flex-row">
           <h2 className="text-4xl dark:text-white text-green-500 font-bold mb-4">
             Chatty
           </h2>
           <div className="absolute flex flex-row right-0 gap-4 mr-4">
-            <Button variant="icon" className="rounded-full">
+            <Button
+              variant="icon"
+              className="rounded-full"
+              onClick={() => setOpenAddChat(true)}
+            >
               <RiChatNewLine className="w-8 h-8" />
             </Button>
             <div className="relative" ref={dropdownRef}>
@@ -398,11 +627,12 @@ const ChatPage = () => {
                   {options.map((option) => (
                     <button
                       key={option.id}
-                      className={`block px-3 py-2 w-full text-left transition-colors ${
+                      className={classNames(
+                        "block px-3 py-2 w-full text-left transition-colors",
                         option.id === "Log Out"
                           ? "hover:bg-red-100 dark:hover:bg-red-900 hover:text-red-800 dark:hover:text-red-200"
-                          : "hover:bg-gray-100 dark:hover:bg-gray-700"
-                      }`}
+                          : "hover:bg-gray-100 dark:hover:bg-gray-700",
+                      )}
                       onClick={() => handleOptionClick(option.id)}
                     >
                       <div className="flex items-center gap-4">
@@ -417,138 +647,63 @@ const ChatPage = () => {
           </div>
         </div>
 
+        {/* Search */}
         <FormInput
           type="text"
           className="w-full bg-transparent rounded-full outline-green-500"
           placeholder="Search or start a new chat"
-          value={localSearchQuerry}
-          onChange={(e) => setLocalSearchQuerry(e.target.value)}
+          value={localSearchQuery}
+          onChange={(e) => setLocalSearchQuery(e.target.value)}
           icon={<IoMdSearch className="w-5 h-5" />}
         />
 
+        {/* Filters */}
         <div className="flex flex-row gap-3 my-4">
-          {filters.map((item) => (
+          {FILTERS.map((item) => (
             <Button
               key={item}
               variant="outline"
               className="rounded-full"
               isActive={filter === item}
-              onClick={() => onFilterChange(item)}
+              onClick={() => setFilter(item)}
             >
               {item}
             </Button>
           ))}
         </div>
 
-        {/* chats listing begins */}
+        {/* Chat List */}
         {loadingChats ? (
           <div className="flex justify-center items-center h-[calc(100%-88px)]">
             <Typing />
           </div>
         ) : (
-          [...chats]
-            .filter((chat) =>
-              localSearchQuerry
-                ? getChatObjectMetadata(chat, user!)
-                    .title?.toLowerCase()
-                    ?.includes(localSearchQuerry.toLowerCase())
-                : true,
-            )
-            .map((chat) => {
-              return (
-                <ChatListItem
-                  chat={chat}
-                  isActive={chat._id === currentChat.current?._id}
-                  unreadCount={
-                    unreadMessages.filter((n) => n.chat === chat._id).length
-                  }
-                  onClick={(chat) => {
-                    if (
-                      currentChat.current?._id &&
-                      currentChat.current._id === chat._id
-                    )
-                      return;
-                    currentChat.current = chat;
-                    LocalStorage.set("currentChat", chat);
-                    setMessage("");
-                    setAttachedFiles([]);
-                    getMessages();
-                  }}
-                  key={chat._id}
-                  activeDropdown={activeDropdown}
-                  onDropdownToggle={setActiveDropdown}
-                  onChatDelete={(chatId) => {
-                    setChats((prev) =>
-                      prev.filter((chat) => chat._id !== chatId),
-                    );
-                    if (currentChat.current?._id === chatId) {
-                      closeCurrentChat();
-                    }
-                  }}
-                />
-              );
-            })
+          <div className="flex-1 overflow-y-auto">
+            {filteredChats.map((chat) => (
+              <ChatListItem
+                key={chat._id}
+                chat={chat}
+                isActive={chat._id === currentChat.current?._id}
+                unreadCount={
+                  unreadMessages.filter((msg) => msg.chat === chat._id).length
+                }
+                onClick={selectChat}
+                activeDropdown={activeDropdown}
+                onDropdownToggle={setActiveDropdown}
+                onChatDelete={handleChatDelete}
+              />
+            ))}
+          </div>
         )}
       </div>
 
+      {/* Chat Area */}
       <div className="w-full overflow-y-hidden">
-        {currentChat.current && currentChat.current?._id ? (
+        {currentChat.current?._id ? (
           <>
-            <div className="p-4 sticky top-0 z-20 flex justify-between group items-center w-full border-b-4 border-gray-800">
-              <div className="flex justify-start items-center w-max gap-3">
-                <Button
-                  variant="icon"
-                  onClick={closeCurrentChat}
-                  className="rounded-full bg-gray-500 hover:bg-gray-600 transition-colors"
-                >
-                  <IoMdArrowBack className="w-6 h-6 text-white" />
-                </Button>
+            {renderChatHeader()}
 
-                {currentChat.current.isGroupChat ? (
-                  <div className="w-12 relative h-12 flex-shrink-0 flex justify-start items-center flex-nowrap">
-                    {currentChat.current.participants
-                      .slice(0, 3)
-                      .map((participant, i) => {
-                        return (
-                          <img
-                            key={participant._id}
-                            src={participant.avatar.url}
-                            className={classNames(
-                              "w-9 h-9 border-[1px] border-white rounded-full absolute outline outline-4 outline-dark",
-                              i === 0
-                                ? "left-0 z-30"
-                                : i === 1
-                                  ? "left-2 z-20"
-                                  : i === 2
-                                    ? "left-4 z-10"
-                                    : "",
-                            )}
-                          />
-                        );
-                      })}
-                  </div>
-                ) : (
-                  <img
-                    className="h-14 w-14 rounded-full flex flex-shrink-0 object-cover"
-                    src={
-                      getChatObjectMetadata(currentChat.current, user!).avatar
-                    }
-                  />
-                )}
-                <div>
-                  <p className="font-bold">
-                    {getChatObjectMetadata(currentChat.current, user!).title}
-                  </p>
-                  <small className="text-zinc-400">
-                    {
-                      getChatObjectMetadata(currentChat.current, user!)
-                        .description
-                    }
-                  </small>
-                </div>
-              </div>
-            </div>
-
+            {/* Messages */}
             <div
               className={classNames(
                 "p-8 overflow-y-auto flex flex-col-reverse gap-6 w-full",
@@ -564,54 +719,24 @@ const ChatPage = () => {
                 </div>
               ) : (
                 <>
-                  {isTyping ? <Typing /> : null}
-                  {messages?.map((msg) => {
-                    return (
-                      <MessageComponent
-                        key={msg._id}
-                        isOwnMessage={msg.sender?._id === user?._id}
-                        isgroupChatMessage={currentChat.current?.isGroupChat}
-                        message={msg}
-                        deleteChatMessage={deleteChatMessage}
-                      />
-                    );
-                  })}
+                  {isTyping && <Typing />}
+                  {messages.map((msg) => (
+                    <MessageComponent
+                      key={msg._id}
+                      isOwnMessage={msg.sender?._id === user?._id}
+                      isGroupChatMessage={currentChat.current?.isGroupChat}
+                      message={msg}
+                      deleteChatMessage={deleteChatMessage}
+                    />
+                  ))}
                 </>
               )}
             </div>
 
-            {attachedFiles.length > 0 ? (
-              <div className="grid gap-4 grid-cols-5 p-4 justify-start max-w-fit">
-                {attachedFiles.map((file, i) => {
-                  return (
-                    <div
-                      className="group w-32 h-32 relative aspect-square rounded-xl cursor-pointer"
-                      key={i}
-                    >
-                      <div className="absolute inset-0 flex justify-center items-center w-full group-hover:opacity-100 opacity-0 transition-opacity ease-in-out duration-150">
-                        <button
-                          onClick={() => {
-                            setAttachedFiles(
-                              attachedFiles.filter((_, _ind) => _ind !== i),
-                            );
-                          }}
-                          className="absolute -top-2 -right-2"
-                        >
-                          <FiXCircle className="h-5 w-6" />
-                        </button>
-                      </div>
-                      <img
-                        className="h-full rounded-xl w-full object-cover"
-                        src={URL.createObjectURL(file)}
-                        alt="attachment"
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
+            {renderAttachedFiles()}
 
-            <div className="sticky top-full p-4 flex justify-between items-center w-full gap-2 border-t-1 border-gray-800">
+            {/* Message Input */}
+            <div className="sticky bottom-0 p-4 flex justify-between items-center w-full gap-2 border-t-1 border-gray-800">
               <MessageBox
                 onMessageChange={handleOnMessageChange}
                 message={message}
@@ -624,13 +749,7 @@ const ChatPage = () => {
             </div>
           </>
         ) : (
-          <div className="flex bg-neutral-100 dark:bg-gray-900 flex-col gap-4 w-full h-full items-center justify-center">
-            <img src="/icon.png" width="150px" />
-            <h1 className="text-4xl font-bold">Chatty</h1>
-            <h1 className="text-xl">
-              Send and receive messages from friends and groups.
-            </h1>
-          </div>
+          renderEmptyState()
         )}
       </div>
     </div>

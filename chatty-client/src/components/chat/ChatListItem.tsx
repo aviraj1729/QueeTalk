@@ -165,10 +165,12 @@ const ChatListItem: React.FC<{
               </button>
 
               {isDropdownOpen && (
-                <div className="absolute mt-1 bg-white dark:bg-gray-800 text-black dark:text-white text-sm shadow-lg rounded-md overflow-hidden z-50 min-w-[150px]">
+                <div
+                  ref={dropdownRef}
+                  className="absolute mt-1 bg-white dark:bg-gray-800 text-black dark:text-white text-sm shadow-lg rounded-md overflow-hidden z-100 min-w-[150px]"
+                >
                   {options.map((option) => (
                     <button
-                      ref={dropdownRef}
                       key={option.id}
                       onClick={() => handleOptionClick(option.id)}
                       className={`block px-3 py-2 w-full text-left transition-colors ${

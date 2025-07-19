@@ -15,10 +15,13 @@ const MessageComponent: React.FC<{
     { id: "Reply", icon: <GoReply size={16} /> },
     { id: "Copy", icon: <IoCopyOutline size={16} /> },
     { id: "Forward", icon: <IoReturnUpForwardOutline size={16} /> },
-    { id: "Delete", icon: <MdDeleteOutline size={16} /> },
+    ...(isOwnMessage
+      ? [{ id: "Delete", icon: <MdDeleteOutline size={16} /> }]
+      : []),
   ];
 
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [dropUp, setDropUp] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
@@ -33,6 +36,23 @@ const MessageComponent: React.FC<{
     }
     setIsDropdownOpen(false);
   };
+
+  useEffect(() => {
+    if (isDropdownOpen && dropdownRef.current && buttonRef.current) {
+      const dropdownRect = dropdownRef.current.getBoundingClientRect();
+      const buttonRect = buttonRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - buttonRect.bottom;
+      const dropdownHeight = dropdownRect.height;
+
+      // If not enough space below, open upward
+      if (spaceBelow < dropdownHeight + 16) {
+        setDropUp(true);
+      } else {
+        setDropUp(false);
+      }
+    }
+  }, [isDropdownOpen]);
+  console.log(`is groupChatmessage: ${isGroupChatMessage}`);
 
   // Click outside to close
   useEffect(() => {
@@ -98,55 +118,58 @@ const MessageComponent: React.FC<{
               : "left-0 border-r-[10px] border-r-gray-200 dark:border-r-gray-800"
           }`}
         ></div>
+        <div className="absolute right-0">
+          <button
+            ref={buttonRef}
+            onClick={toggleOptions}
+            className={`p-1 rounded-full transition-colors group-hover:opacity-100 opacity-0 ${
+              isOwnMessage ? "text-white" : "text-gray-600 dark:text-gray-300"
+            }`}
+          >
+            <IoIosArrowDown
+              className={`w-4 h-4 transition-transform ${
+                isDropdownOpen ? "rotate-180" : ""
+              }`}
+            />
+          </button>
 
-        <div className="flex justify-between items-center">
-          {!isOwnMessage && (
-            <p className="text-green-500">{message?.sender?.username}</p>
-          )}
-          <div className="relative">
-            <button
-              ref={buttonRef}
-              onClick={toggleOptions}
-              className={`p-1 rounded-full transition-colors group-hover:opacity-100 opacity-0 ${
-                isOwnMessage ? "text-white" : "text-gray-600 dark:text-gray-300"
+          {isDropdownOpen && (
+            <div
+              ref={dropdownRef}
+              className={`absolute ${
+                dropUp ? "bottom-full mb-1" : "top-full mt-1"
+              } bg-white dark:bg-gray-800 text-black dark:text-white text-sm shadow-lg rounded-md overflow-hidden z-50 min-w-[120px] ${
+                isOwnMessage ? "right-0" : "left-0"
               }`}
             >
-              <IoIosArrowDown
-                className={`w-4 h-4 transition-transform ${
-                  isDropdownOpen ? "rotate-180" : ""
-                }`}
-              />
-            </button>
-
-            {isDropdownOpen && (
-              <div
-                ref={dropdownRef}
-                className={`absolute top-full mt-1 bg-white dark:bg-gray-800 text-black dark:text-white text-sm shadow-lg rounded-md overflow-hidden z-50 min-w-[120px] ${
-                  isOwnMessage ? "right-0" : "left-0"
-                }`}
-              >
-                {options.map((option) => (
-                  <button
-                    key={option.id}
-                    onClick={() => handleOptionClick(option.id)}
-                    className={`block px-3 py-2 w-full text-left transition-colors ${
-                      option.id === "Delete"
-                        ? "hover:bg-red-100 dark:hover:bg-red-900 hover:text-red-800 dark:hover:text-red-200"
-                        : "hover:bg-gray-100 dark:hover:bg-gray-700"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      {option.icon}
-                      <span>{option.id}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+              {options.map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => handleOptionClick(option.id)}
+                  className={`block px-3 py-2 w-full text-left transition-colors ${
+                    option.id === "Delete"
+                      ? "hover:bg-red-100 dark:hover:bg-red-900 hover:text-red-800 dark:hover:text-red-200"
+                      : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {option.icon}
+                    <span>{option.id}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-between items-center">
+          {!isOwnMessage && isGroupChatMessage && (
+            <p className="text-green-500 text-sm mr-3">
+              {message?.sender?.username}
+            </p>
+          )}
         </div>
 
-        <p className="text-lg">{message.content}</p>
+        <p className="text-lg mr-3">{message.content}</p>
 
         {message.attachments.map((att, idx) =>
           att.url.endsWith(".mp3") ? (
