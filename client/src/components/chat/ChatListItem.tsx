@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState } from "react";
+import ReactDOM from "react-dom";
 import { IoIosArrowDown } from "react-icons/io";
 import { BsInfoCircle } from "react-icons/bs";
 import { FiMinusCircle } from "react-icons/fi";
@@ -10,6 +11,7 @@ import { ChatListItemInterface } from "../../interfaces/chat";
 import { useAuth } from "../../contexts/AuthContext";
 import { requestHandler, getChatObjectMetadata, classNames } from "../../utils";
 import { deleteOneOnOneChat } from "../../api";
+import GroupAvatar from "./GroupAvatar";
 
 const ChatListItem: React.FC<{
   chat: ChatListItemInterface;
@@ -18,7 +20,10 @@ const ChatListItem: React.FC<{
   unreadCount?: number;
   onChatDelete: (chatId: string) => void;
   activeDropdown: string | null;
-  onDropdownToggle: (id: string | null) => void;
+  onDropdownToggle: (
+    id: string | null,
+    position?: { top: number; left: number },
+  ) => void;
 }> = ({
   chat,
   onClick,
@@ -29,11 +34,13 @@ const ChatListItem: React.FC<{
   onDropdownToggle,
 }) => {
   const { user } = useAuth();
-  const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const isDropdownOpen = activeDropdown === chat._id;
 
   const [openGroupInfo, setOpenGroupInfo] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>(
+    { top: 0, left: 0 },
+  );
 
   const options = [
     { id: "About", icon: <BsInfoCircle size={16} /> },
@@ -46,15 +53,20 @@ const ChatListItem: React.FC<{
 
   const toggleOptions = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onDropdownToggle(isDropdownOpen ? null : chat._id);
+    if (isDropdownOpen) {
+      onDropdownToggle(null);
+    } else if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownPos({ top: rect.bottom + 4, left: rect.left });
+      onDropdownToggle(chat._id, { top: rect.bottom + 4, left: rect.left });
+    }
   };
 
   const handleOptionClick = (optionId: string) => {
     if (optionId === "About") {
       setOpenGroupInfo(true);
     }
-    // Add logic for other options here if needed
-    onDropdownToggle(null); // close dropdown after click
+    onDropdownToggle(null);
   };
 
   const deleteChat = async () => {
@@ -67,28 +79,6 @@ const ChatListItem: React.FC<{
       alert,
     );
   };
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(event.target as Node)
-      ) {
-        onDropdownToggle(null);
-      }
-    };
-
-    if (isDropdownOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [isDropdownOpen]);
 
   if (!chat) return null;
 
@@ -104,25 +94,9 @@ const ChatListItem: React.FC<{
             : "hover:bg-gray-200 dark:hover:bg-gray-800",
         )}
       >
-        {/* Avatar */}
         <div className="flex justify-center items-center flex-shrink-0">
           {chat.isGroupChat ? (
-            <div className="w-12 relative h-12 flex-shrink-0 flex justify-start items-center">
-              {chat.participants.slice(0, 3).map((p, i) => (
-                <img
-                  key={p._id}
-                  src={p.avatar.url}
-                  className={classNames(
-                    "w-8 h-8 rounded-full absolute outline outline-3 outline-gray-50 dark:outline-gray-500",
-                    i === 0
-                      ? "left-0 z-[3]"
-                      : i === 1
-                        ? "left-2.5 z-[2]"
-                        : "left-[18px] z-[1]",
-                  )}
-                />
-              ))}
-            </div>
+            <GroupAvatar participants={chat.participants} size={40} />
           ) : (
             <img
               src={getChatObjectMetadata(chat, user!).avatar}
@@ -131,8 +105,7 @@ const ChatListItem: React.FC<{
           )}
         </div>
 
-        {/* Message preview */}
-        <div className="w-full">
+        <div className="w-full ml-2">
           <div className="flex justify-between">
             <p className="truncate">
               {getChatObjectMetadata(chat, user!).title}
@@ -142,9 +115,9 @@ const ChatListItem: React.FC<{
             </small>
           </div>
           <div className="flex justify-between">
-            <div className="w-full flex justify-between">
+            <div className="w-full flex flex-row items-center">
               {chat.lastMessage && chat.lastMessage.attachments.length > 0 && (
-                <MdAttachFile className="h-3 w-3 mr-2 flex-shrink-0" />
+                <MdAttachFile className="h-4 w-4 flex-shrink-0" />
               )}
               <small
                 className={`truncate text-md ${unreadCount > 0 ? "text-green-500" : ""}`}
@@ -157,42 +130,42 @@ const ChatListItem: React.FC<{
                 {unreadCount > 9 ? "9+" : unreadCount}
               </span>
             )}
-            <div className="relative">
-              <button
-                ref={buttonRef}
-                onClick={toggleOptions}
-                className="group-hover:block hidden p-1 rounded-full hover:bg-black/20 transition-colors"
-              >
-                <IoIosArrowDown className="w-4 h-4" />
-              </button>
-
-              {isDropdownOpen && (
-                <div
-                  ref={dropdownRef}
-                  className="absolute mt-1 bg-white dark:bg-gray-800 text-black dark:text-white text-sm shadow-lg rounded-md overflow-hidden z-100 min-w-[150px]"
-                >
-                  {options.map((option) => (
-                    <button
-                      key={option.id}
-                      onClick={() => handleOptionClick(option.id)}
-                      className={`block px-3 py-2 w-full text-left transition-colors ${
-                        option.id === "Exit"
-                          ? "hover:bg-red-100 dark:hover:bg-red-900 hover:text-red-800 dark:hover:text-red-200"
-                          : "hover:bg-gray-100 dark:hover:bg-gray-700"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        {option.icon}
-                        <span>{option.id}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <button
+              ref={buttonRef}
+              onClick={toggleOptions}
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full hover:bg-black/20"
+            >
+              <IoIosArrowDown className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </div>
+
+      {isDropdownOpen &&
+        ReactDOM.createPortal(
+          <div
+            className="fixed bg-white dark:bg-gray-800 text-black dark:text-white text-sm shadow-lg rounded-md overflow-hidden z-[999] min-w-[150px]"
+            style={{ top: dropdownPos.top, left: dropdownPos.left }}
+          >
+            {options.map((option) => (
+              <button
+                key={option.id}
+                onClick={() => handleOptionClick(option.id)}
+                className={`block px-3 py-2 w-full text-left transition-colors ${
+                  option.id === "Exit"
+                    ? "hover:bg-red-100 dark:hover:bg-red-900 hover:text-red-800 dark:hover:text-red-200"
+                    : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {option.icon}
+                  <span>{option.id}</span>
+                </div>
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </>
   );
 };

@@ -5,16 +5,7 @@ import { GoReply } from "react-icons/go";
 import { IoCopyOutline, IoReturnUpForwardOutline } from "react-icons/io5";
 import { MdDeleteOutline } from "react-icons/md";
 import AttachmentRenderer from "./AttachmentRender";
-import { TiTick } from "react-icons/ti";
 
-interface MessageBoxProps {
-  message: string;
-  onMessageChange: (value: string) => void;
-  onSend?: () => void;
-  onFileSend?: (file: File, message?: string) => void; // This is what the component expects
-  chatId: string;
-  isTyping?: boolean;
-}
 const MessageComponent: React.FC<{
   isOwnMessage?: boolean;
   isGroupChatMessage?: boolean;

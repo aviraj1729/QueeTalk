@@ -64,10 +64,11 @@ const AttachmentRenderer: React.FC<Props> = ({ attachments = [] }) => {
 
       {/* 📎 Other Attachments */}
       {otherAttachments.map((file, idx) => {
-        const isPDF = file.type === "application/pdf";
+        const isPDF = file.type === "document";
         const isWord = file.type?.includes("word");
         const isAudio = file.type?.startsWith("audio");
         const isVideo = file.type?.startsWith("video");
+        console.log("file type", file.type);
 
         return (
           <div key={idx} className="py-1 rounded-md shadow-sm space-y-1">
@@ -77,7 +78,7 @@ const AttachmentRenderer: React.FC<Props> = ({ attachments = [] }) => {
                 loading="Loading preview..."
                 error={<span>Unable to preview PDF</span>}
               >
-                <Page pageNumber={1} width={200} />
+                <Page pageNumber={1} width={250} />
               </Document>
             ) : isAudio ? (
               <>

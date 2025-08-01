@@ -83,6 +83,7 @@ export const getChatObjectMetadata = (
       avatar: participant?.avatar.url, // Participant's avatar URL.
       title: participant?.username, // Participant's username serves as the title.
       description: participant?.email, // Email address of the participant.
+      contact: participant?.contact,
       lastMessage,
     };
   }

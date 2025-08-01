@@ -32,6 +32,8 @@ import {
   getChatObjectMetadata,
   requestHandler,
 } from "../utils";
+import ChatInfo from "../components/chat/ChatInfo";
+import GroupAvatar from "../components/chat/GroupAvatar";
 
 // Constants
 const SOCKET_EVENTS = {
@@ -86,6 +88,8 @@ const ChatPage = () => {
   const [message, setMessage] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
 
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+
   // Memoized values
   const options = useMemo(
     () => [
@@ -138,6 +142,10 @@ const ChatPage = () => {
     setIsTyping(false);
     setSelfTyping(false);
   }, [socket]);
+
+  const openGroupInfo = useCallback(() => {
+    setIsInfoOpen(false);
+  }, []);
 
   const handleOptionClick = useCallback(
     (id: string) => {
@@ -326,6 +334,7 @@ const ChatPage = () => {
       if (currentChat.current?._id === chat._id) return;
 
       currentChat.current = chat;
+      setIsInfoOpen(false);
       LocalStorage.set("currentChat", chat);
       setMessage("");
       setAttachedFiles([]);
@@ -506,7 +515,10 @@ const ChatPage = () => {
     const chatMetadata = getChatObjectMetadata(currentChat.current, user);
 
     return (
-      <div className="p-4 sticky top-0 z-20 flex justify-between items-center w-full border-b-4 border-gray-800">
+      <div
+        className="p-4 sticky top-0 z-20 flex justify-between items-center w-full border-b-4 border-gray-800 cursor-pointer"
+        onClick={() => setIsInfoOpen(true)}
+      >
         <div className="flex justify-start items-center w-max gap-3">
           <Button
             variant="icon"
@@ -517,33 +529,18 @@ const ChatPage = () => {
           </Button>
 
           {currentChat.current.isGroupChat ? (
-            <div className="w-12 relative h-12 flex-shrink-0 flex justify-start items-center flex-nowrap">
-              {currentChat.current.participants
-                .slice(0, 3)
-                .map((participant, i) => (
-                  <img
-                    key={participant._id}
-                    src={participant.avatar.url}
-                    alt={`Participant ${i + 1}`}
-                    className={classNames(
-                      "w-10 h-10 rounded-full absolute outline outline-3 outline-gray-50 dark:outline-gray-500",
-                      i === 0
-                        ? "left-0 z-30"
-                        : i === 1
-                          ? "left-2 z-20"
-                          : "left-4 z-10",
-                    )}
-                  />
-                ))}
-            </div>
+            <GroupAvatar
+              participants={currentChat.current?.participants}
+              size={40}
+            />
           ) : (
             <img
-              className="h-14 w-14 rounded-full flex flex-shrink-0 object-cover"
+              className="h-12 w-12 rounded-full flex flex-shrink-0 object-cover"
               src={chatMetadata.avatar}
               alt="Chat avatar"
             />
           )}
-          <div>
+          <div className="ml-2">
             <p className="font-bold">{chatMetadata.title}</p>
             <small className="text-zinc-400">{chatMetadata.description}</small>
           </div>
@@ -556,7 +553,7 @@ const ChatPage = () => {
     if (attachedFiles.length === 0) return null;
 
     return (
-      <div className="grid gap-4 grid-cols-5 p-4 justify-start max-w-fit">
+      <div className="relative grid gap-4 grid-cols-5 p-4 justify-start max-w-fit">
         {attachedFiles.map((file, index) => (
           <div
             key={index}
@@ -698,54 +695,66 @@ const ChatPage = () => {
       </div>
 
       {/* Chat Area */}
-      <div className="w-full overflow-y-hidden">
+      <div className="w-full h-screen overflow-hidden flex">
         {currentChat.current?._id ? (
           <>
-            {renderChatHeader()}
+            <div className="flex flex-col flex-1">
+              {renderChatHeader()}
 
-            {/* Messages */}
-            <div
-              className={classNames(
-                "p-8 overflow-y-auto flex flex-col-reverse gap-6 w-full",
-                attachedFiles.length > 0
-                  ? "h-[calc(100vh-336px)]"
-                  : "h-[calc(100vh-176px)]",
-              )}
-              id="chat-window"
-            >
-              {loadingMessages ? (
-                <div className="flex justify-center items-center">
-                  <Typing />
+              {/* Messages + Attachments + Input */}
+              <div className="flex flex-col flex-1 overflow-hidden">
+                {/* Message list should scroll */}
+                <div
+                  className="flex-1 overflow-y-auto px-6 pt-6 pb-4 flex flex-col-reverse gap-6"
+                  id="chat-window"
+                >
+                  {loadingMessages ? (
+                    <div className="flex justify-center items-center">
+                      <Typing />
+                    </div>
+                  ) : (
+                    <>
+                      {isTyping && <Typing />}
+                      {messages.map((msg) => (
+                        <MessageComponent
+                          key={msg._id}
+                          isOwnMessage={msg.sender?._id === user?._id}
+                          isGroupChatMessage={currentChat.current?.isGroupChat}
+                          message={msg}
+                          deleteChatMessage={deleteChatMessage}
+                        />
+                      ))}
+                    </>
+                  )}
                 </div>
-              ) : (
-                <>
-                  {isTyping && <Typing />}
-                  {messages.map((msg) => (
-                    <MessageComponent
-                      key={msg._id}
-                      isOwnMessage={msg.sender?._id === user?._id}
-                      isGroupChatMessage={currentChat.current?.isGroupChat}
-                      message={msg}
-                      deleteChatMessage={deleteChatMessage}
-                    />
-                  ))}
-                </>
-              )}
+
+                {/* Attached Files (non-sticky, will push input down) */}
+                {renderAttachedFiles()}
+
+                {/* Sticky input */}
+                <div className="sticky bottom-0 p-4 flex justify-between items-center w-full gap-2 z-10">
+                  <MessageBox
+                    onMessageChange={handleOnMessageChange}
+                    message={message}
+                    onSend={sendChatMessage}
+                    onFileSend={sendChatMessage}
+                    chatId={currentChat.current?._id}
+                    isTyping={isTyping}
+                  />
+                </div>
+              </div>
             </div>
 
-            {renderAttachedFiles()}
-
-            {/* Message Input */}
-            <div className="sticky bottom-0 p-4 flex justify-between items-center w-full gap-2 border-t-1 border-gray-800">
-              <MessageBox
-                onMessageChange={handleOnMessageChange}
-                message={message}
-                onSend={sendChatMessage}
-                onFileSend={sendChatMessage}
-                chatId={currentChat.current._id}
-                isTyping={isTyping}
-              />
-            </div>
+            {/* Right Panel */}
+            {isInfoOpen && (
+              <div className="md:w-[400px] h-screen border-l border-gray-300 dark:border-gray-800">
+                <ChatInfo
+                  isOpen={isInfoOpen}
+                  onClose={() => setIsInfoOpen(false)}
+                  data={currentChat.current}
+                />
+              </div>
+            )}
           </>
         ) : (
           renderEmptyState()
