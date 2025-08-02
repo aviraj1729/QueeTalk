@@ -96,12 +96,17 @@ const getMessages = (chatId: string) =>
   apiClient.get(`chatty/messages/${chatId}`);
 const sendMessage = (chatId: string, content: string, attachments: File[]) => {
   const formData = new FormData();
+
   if (content) {
     formData.append("content", content);
   }
-  attachments?.map((file) => {
-    formData.append(("attachments", file));
-  });
+
+  if (attachments?.length) {
+    for (const file of attachments) {
+      formData.append("attachments", file);
+    }
+  }
+
   return apiClient.post(`/chatty/messages/${chatId}`, formData);
 };
 

@@ -29,7 +29,19 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
     if (!audio) return;
 
     const handleLoadedMetadata = () => {
-      setDuration(formatTime(audio.duration));
+      if (!isFinite(audio.duration)) {
+        const onTimeUpdate = () => {
+          if (isFinite(audio.duration)) {
+            setDuration(formatTime(audio.duration));
+            audio.removeEventListener("timeupdate", onTimeUpdate);
+          }
+        };
+        audio.addEventListener("timeupdate", onTimeUpdate);
+        audio.currentTime = 1e10; // force browser to estimate real duration
+      } else {
+        setDuration(formatTime(audio.duration));
+      }
+
       loadAudioBuffer();
     };
 

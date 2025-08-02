@@ -5,6 +5,7 @@ import { GoReply } from "react-icons/go";
 import { IoCopyOutline, IoReturnUpForwardOutline } from "react-icons/io5";
 import { MdDeleteOutline } from "react-icons/md";
 import AttachmentRenderer from "./AttachmentRender";
+import { FiDownload } from "react-icons/fi";
 
 const MessageComponent: React.FC<{
   isOwnMessage?: boolean;
@@ -14,7 +15,9 @@ const MessageComponent: React.FC<{
 }> = ({ message, isOwnMessage, isGroupChatMessage, deleteChatMessage }) => {
   const options = [
     { id: "Reply", icon: <GoReply size={16} /> },
-    { id: "Copy", icon: <IoCopyOutline size={16} /> },
+    ...(message.attachments.length > 0
+      ? [{ id: "Download", icon: <FiDownload size={16} /> }]
+      : [{ id: "Copy", icon: <IoCopyOutline size={16} /> }]),
     { id: "Forward", icon: <IoReturnUpForwardOutline size={16} /> },
     ...(isOwnMessage
       ? [{ id: "Delete", icon: <MdDeleteOutline size={16} /> }]

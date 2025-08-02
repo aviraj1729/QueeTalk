@@ -254,37 +254,43 @@ const ChatPage = () => {
     );
   }, [socket]);
 
-  const sendChatMessage = useCallback(async () => {
-    if (!message.trim() && attachedFiles.length === 0) {
-      alert("Please enter a message or attach files");
-      return;
-    }
+  const sendChatMessage = useCallback(
+    async (customMessage?: string, customFiles?: File[]) => {
+      const msg = customMessage ?? message;
+      const files = customFiles ?? attachedFiles;
 
-    if (!currentChat.current?._id) {
-      alert("No chat selected");
-      return;
-    }
+      if (!msg.trim() && files.length === 0) {
+        alert("Please enter a message or attach files");
+        return;
+      }
 
-    if (!socket) {
-      alert("Socket not available");
-      return;
-    }
+      if (!currentChat.current?._id) {
+        alert("No chat selected");
+        return;
+      }
 
-    socket.emit(SOCKET_EVENTS.STOP_TYPING, currentChat.current._id);
+      if (!socket) {
+        alert("Socket not available");
+        return;
+      }
 
-    await requestHandler(
-      () => sendMessage(currentChat.current?._id || "", message, attachedFiles),
-      null,
-      (response) => {
-        const newMessage = response.data;
-        setMessage("");
-        setAttachedFiles([]);
-        setMessages((prev) => [newMessage, ...prev]);
-        updateChatLastMessage(currentChat.current?._id || "", newMessage);
-      },
-      alert,
-    );
-  }, [message, attachedFiles, socket, updateChatLastMessage]);
+      socket.emit(SOCKET_EVENTS.STOP_TYPING, currentChat.current._id);
+
+      await requestHandler(
+        () => sendMessage(currentChat.current?._id || "", msg, files),
+        null,
+        (response) => {
+          const newMessage = response.data;
+          setMessage("");
+          setAttachedFiles([]);
+          setMessages((prev) => [newMessage, ...prev]);
+          updateChatLastMessage(currentChat.current?._id || "", newMessage);
+        },
+        alert,
+      );
+    },
+    [message, attachedFiles, socket, updateChatLastMessage],
+  );
 
   const deleteChatMessage = useCallback(
     async (messageToDelete: ChatMessageInterface) => {
@@ -737,7 +743,9 @@ const ChatPage = () => {
                     onMessageChange={handleOnMessageChange}
                     message={message}
                     onSend={sendChatMessage}
-                    onFileSend={sendChatMessage}
+                    onFileSend={(files, msg) =>
+                      sendChatMessage(msg || "", files)
+                    } // ✅ This should now work
                     chatId={currentChat.current?._id}
                     isTyping={isTyping}
                   />
