@@ -1,5 +1,5 @@
 import { MdClose } from "react-icons/md";
-import { getChatObjectMetadata } from "../../utils";
+import { getChatObjectMetadata, getInitials } from "../../utils";
 import { useAuth } from "../../contexts/AuthContext";
 import { ChatListItemInterface } from "../../interfaces/chat";
 import Button from "../Button";
@@ -15,11 +15,11 @@ const ChatInfo: React.FC<{
   data: ChatListItemInterface;
 }> = ({ isOpen, onClose, data }) => {
   const { user } = useAuth();
-  console.log(user);
 
   // Hide the component entirely if not open
   if (!isOpen) return null;
-  const chatMetaData = getChatObjectMetadata(data, user);
+  const chatMetaData = getChatObjectMetadata(data, user!);
+  const initials = getInitials(chatMetaData.name);
 
   return (
     <div className="p-4">
@@ -39,11 +39,17 @@ const ChatInfo: React.FC<{
         {data.isGroupChat ? (
           <GroupAvatar participants={data.participants} size={64} />
         ) : (
-          <img
-            className="h-32 w-32 rounded-full flex-shrink-0 object-cover"
-            src={chatMetaData.avatar}
-            alt="Chat avatar"
-          />
+          <div className="w-32 h-32 rounded-full bg-gray-300 dark:bg-gray-700 text-white flex items-center justify-center text-6xl font-bold overflow-hidden outline outline-1 outline-gray-500">
+            {chatMetaData.avatar ? (
+              <img
+                src={chatMetaData.avatar}
+                alt={initials}
+                className="object-cover w-full h-full"
+              />
+            ) : (
+              initials
+            )}
+          </div>
         )}
 
         <p className="text-2xl mt-4">{chatMetaData.title}</p>
@@ -87,13 +93,22 @@ const ChatInfo: React.FC<{
           </div>
           {data.participants.map((participant) => {
             return (
-              <div className="w-full overflow-y-auto my-2 p-2 flex flex-row cursor-pointer rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800">
+              <div
+                key={participant._id}
+                className="w-full overflow-y-auto my-2 p-2 flex flex-row cursor-pointer rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800"
+              >
                 <div className="flex flex-row">
-                  <img
-                    className="h-14 w-14 rounded-full flex-shrink-0 object-cover"
-                    src={participant.avatar.url}
-                    alt="Chat avatar"
-                  />
+                  <div className="w-14 h-14 rounded-full bg-gray-300 dark:bg-gray-700 text-white flex items-center justify-center text-xl font-bold overflow-hidden outline outline-1 outline-gray-500">
+                    {participant.avatar.url ? (
+                      <img
+                        className="object-cover w-full h-full"
+                        src={participant.avatar.url}
+                        alt={getInitials(participant.name)}
+                      />
+                    ) : (
+                      getInitials(participant.name)
+                    )}
+                  </div>
                   <div className="flex flex-col">
                     <p className="text-md text-gray-300 turncate ml-3 t dark:text-gray-300">
                       {participant._id.toString === user._id.toString()

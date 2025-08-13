@@ -1,12 +1,10 @@
 import React from "react";
 import { classNames } from "../../utils";
 
-interface GroupAvatarProps {
+const GroupAvatar: React.FC<{
   participants: { avatar: { url: string } }[];
   size: number; // e.g. 64
-}
-
-const GroupAvatar: React.FC<GroupAvatarProps> = ({ participants, size }) => {
+}> = ({ participants, size }) => {
   const displayed = participants.slice(0, 2);
   const extra = participants.length - displayed.length;
   const overlapOffset = size * 0.35;

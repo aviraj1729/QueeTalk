@@ -81,8 +81,8 @@ export const getChatObjectMetadata = (
     // Return metadata specific to individual chats.
     return {
       avatar: participant?.avatar.url, // Participant's avatar URL.
-      title: participant?.username, // Participant's username serves as the title.
-      description: participant?.email, // Email address of the participant.
+      title: participant?.name, // Participant's name serves as the title.
+      description: participant?.username, // Email address of the participant.
       contact: participant?.contact,
       lastMessage,
     };
@@ -123,3 +123,73 @@ export class LocalStorage {
     localStorage.clear();
   }
 }
+
+export const getInitials = (name: string) => {
+  return name
+    ?.split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join("");
+};
+
+// utils.ts
+export const BREAKPOINTS = {
+  sm: 640,
+  md: 768,
+  lg: 1024,
+  xl: 1280,
+  "2xl": 1536,
+};
+
+export type DeviceType = "mobile" | "tablet" | "desktop" | "large-desktop";
+
+export const getLayoutConfig = (deviceType: DeviceType) => {
+  switch (deviceType) {
+    case "mobile":
+      return {
+        sidebarWidth: "w-full",
+        contentPadding: "p-3",
+        headerHeight: "h-14",
+        searchSize: "text-sm",
+        buttonSize: "p-2",
+        iconSize: "w-5 h-5",
+      };
+    case "tablet":
+      return {
+        sidebarWidth: "w-80",
+        contentPadding: "p-4",
+        headerHeight: "h-16",
+        searchSize: "text-base",
+        buttonSize: "p-2.5",
+        iconSize: "w-6 h-6",
+      };
+    case "desktop":
+      return {
+        sidebarWidth: "w-96",
+        contentPadding: "p-4",
+        headerHeight: "h-16",
+        searchSize: "text-base",
+        buttonSize: "p-3",
+        iconSize: "w-6 h-6",
+      };
+    case "large-desktop":
+      return {
+        sidebarWidth: "w-[420px]",
+        contentPadding: "p-6",
+        headerHeight: "h-18",
+        searchSize: "text-lg",
+        buttonSize: "p-3",
+        iconSize: "w-7 h-7",
+      };
+    default:
+      return {
+        sidebarWidth: "w-96",
+        contentPadding: "p-4",
+        headerHeight: "h-16",
+        searchSize: "text-base",
+        buttonSize: "p-3",
+        iconSize: "w-6 h-6",
+      };
+  }
+};

@@ -6,13 +6,21 @@ import { IoCopyOutline, IoReturnUpForwardOutline } from "react-icons/io5";
 import { MdDeleteOutline } from "react-icons/md";
 import AttachmentRenderer from "./AttachmentRender";
 import { FiDownload } from "react-icons/fi";
+import { DeviceType, getInitials } from "../../utils";
 
 const MessageComponent: React.FC<{
   isOwnMessage?: boolean;
   isGroupChatMessage?: boolean;
   message: ChatMessageInterface;
   deleteChatMessage: (message: ChatMessageInterface) => void;
-}> = ({ message, isOwnMessage, isGroupChatMessage, deleteChatMessage }) => {
+  deviceType: DeviceType;
+}> = ({
+  message,
+  isOwnMessage,
+  isGroupChatMessage,
+  deleteChatMessage,
+  deviceType,
+}) => {
   const options = [
     { id: "Reply", icon: <GoReply size={16} /> },
     ...(message.attachments.length > 0
@@ -28,17 +36,66 @@ const MessageComponent: React.FC<{
   const [dropUp, setDropUp] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const toggleExpand = () => setIsExpanded((prev) => !prev);
 
   const toggleOptions = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsDropdownOpen((prev) => !prev);
   };
 
-  const handleOptionClick = (optionId: string) => {
+  const getMaxWidth = () => {
+    switch (deviceType) {
+      case "mobile":
+        return "max-w-[280px] sm:max-w-[320px]";
+      case "tablet":
+        return "max-w-[400px] md:max-w-[450px]";
+      case "desktop":
+        return "max-w-[400px] lg:max-w-[450px]";
+      case "large-desktop":
+        return "max-w-[600px] xl:max-w-[700px] 2xl:max-w-[800px]";
+      default:
+        return "max-w-[900px]";
+    }
+  };
+
+  // Responsive avatar size
+  const getAvatarSize = () => {
+    return deviceType === "mobile" ? "w-8 h-8" : "w-10 h-10";
+  };
+  const handleOptionClick = (
+    optionId: string,
+    url: string,
+    fileName: string,
+  ) => {
     if (optionId === "Delete") {
       deleteChatMessage(message);
+    } else if (optionId === "Download") {
+      handleDownload(url, fileName);
     }
     setIsDropdownOpen(false);
+  };
+  const handleDownload = async (url: string, filename: string) => {
+    if (!url) {
+      console.warn("No download URL available.");
+      return;
+    }
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = filename || "file";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error("Download failed:", error);
+      window.open(url, "_blank"); // Fallback
+    }
   };
 
   useEffect(() => {
@@ -79,11 +136,7 @@ const MessageComponent: React.FC<{
     };
   }, [isDropdownOpen]);
 
-  const initials = message.sender.username
-    ?.match(/\b(\w)/g)
-    ?.slice(0, 2)
-    .join("")
-    .toUpperCase();
+  const initials = getInitials(message.sender.name);
 
   const avatarURL = message?.sender?.avatar?.url;
 
@@ -91,10 +144,12 @@ const MessageComponent: React.FC<{
     <div
       className={`flex items-end gap-2 ${
         isOwnMessage ? "justify-end" : "justify-start"
-      }`}
+      } ${deviceType === "mobile" ? "px-2" : "px-0"}`}
     >
       {!isOwnMessage && (
-        <div className="w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-700 text-white flex items-center justify-center text-xs font-bold overflow-hidden outline outline-1 outline-gray-500">
+        <div
+          className={`${getAvatarSize()} rounded-full bg-gray-300 dark:bg-gray-700 text-white flex items-center justify-center text-lg font-bold overflow-hidden outline outline-1 outline-gray-500`}
+        >
           {avatarURL ? (
             <img
               src={avatarURL}
@@ -108,10 +163,10 @@ const MessageComponent: React.FC<{
       )}
 
       <div
-        className={`relative max-w-[75%] px-2 pt-2 text-sm shadow-md group ${
+        className={`relative ${getMaxWidth()} px-3 pt-2 ${deviceType === "mobile" ? "text-sm" : "text-base"} break-words shadow-md group ${
           isOwnMessage
             ? "bg-green-800 text-white rounded-xl rounded-br-none"
-            : "dark:bg-gray-800 text-black dark:text-white rounded-xl rounded-bl-none"
+            : "bg-gray-100 dark:bg-gray-800 text-black dark:text-white rounded-xl rounded-bl-none"
         }`}
       >
         <div
@@ -121,7 +176,7 @@ const MessageComponent: React.FC<{
               : "left-0 border-r-[10px] border-r-gray-200 dark:border-r-gray-800"
           }`}
         ></div>
-        <div className="absolute right-0">
+        <div className="absolute right-0 z-50">
           <button
             ref={buttonRef}
             onClick={toggleOptions}
@@ -148,7 +203,13 @@ const MessageComponent: React.FC<{
               {options.map((option) => (
                 <button
                   key={option.id}
-                  onClick={() => handleOptionClick(option.id)}
+                  onClick={() =>
+                    handleOptionClick(
+                      option.id,
+                      message.attachments?.[0]?.url,
+                      message.attachments?.[0]?.originalName,
+                    )
+                  }
                   className={`block px-3 py-2 w-full text-left transition-colors ${
                     option.id === "Delete"
                       ? "hover:bg-red-100 dark:hover:bg-red-900 hover:text-red-800 dark:hover:text-red-200"
@@ -185,7 +246,33 @@ const MessageComponent: React.FC<{
         <p
           className={`text-lg mr-3 ${message.attachments.length > 0 ? "mt-1" : ""}`}
         >
-          {message.content}
+          {message.content.length > 590 ? (
+            <>
+              {isExpanded ? (
+                <>
+                  {message.content}
+                  <span
+                    className="text-blue-500 cursor-pointer ml-1"
+                    onClick={toggleExpand}
+                  >
+                    Show less
+                  </span>
+                </>
+              ) : (
+                <>
+                  {message.content.substring(0, 590)}...
+                  <span
+                    className="text-blue-500 cursor-pointer ml-1"
+                    onClick={toggleExpand}
+                  >
+                    Read more
+                  </span>
+                </>
+              )}
+            </>
+          ) : (
+            message.content
+          )}
         </p>
 
         <div className="flex justify-end items-center text-[10px] opacity-70">
@@ -214,13 +301,11 @@ const MessageComponent: React.FC<{
       </div>
 
       {isOwnMessage && (
-        <div className="w-10 h-10 rounded-full bg-green-800 text-white flex items-center justify-center text-xs font-bold overflow-hidden outline outline-2 outline-black">
+        <div
+          className={`${getAvatarSize()} rounded-full bg-green-800 text-white flex items-center justify-center text-xs font-bold overflow-hidden outline outline-2 outline-black`}
+        >
           {avatarURL ? (
-            <img
-              src={avatarURL}
-              alt={initials}
-              className="object-cover w-full h-full"
-            />
+            <img src={avatarURL} className="object-cover w-full h-full" />
           ) : (
             initials
           )}

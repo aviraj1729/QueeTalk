@@ -2,12 +2,14 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import mongoose, { Schema } from "mongoose";
-import { USER_TEMPORARY_TOKEN_EXPIRY, UserLoginType } from "../constants.js";
+import { UserLoginType } from "../constants.js";
 import validator from "validator";
 import dotenv from "dotenv";
 dotenv.config();
 const MINIMUM_AGE = 10;
-const OTP_EXPIRY_MINUTES = 5; // OTP expires in 5 minutes
+const OTP_EXPIRY_MINUTES = 5;
+import speakeasy from "speakeasy";
+import qrcode from "qrcode";
 
 const userSchema = new Schema(
   {
@@ -77,10 +79,37 @@ const userSchema = new Schema(
           `${props.value} is not a valid phone number! Must be 10 digits.`,
       },
     },
-    loginType: {
-      type: String,
-      enum: [UserLoginType.EMAIL_PASSWORD],
-      default: UserLoginType.EMAIL_PASSWORD,
+    favourites: [
+      {
+        chat: { type: Schema.Types.ObjectId, ref: "Chat" },
+        addedAt: { type: Date, default: Date.now },
+      },
+    ],
+    messageRequests: [
+      {
+        from: { type: Schema.Types.ObjectId, ref: "User" },
+        message: { type: String },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    blockedUsers: [
+      {
+        user: { type: Schema.Types.ObjectId, ref: "User" },
+        blockedAt: { type: Date, default: Date.now },
+        reason: { type: String, default: "" },
+      },
+    ],
+    lastSeen: { type: Date },
+    isOnline: { type: Boolean, default: false },
+
+    twoFA: {
+      enabled: {
+        type: Boolean,
+        default: false,
+      },
+      secret: {
+        type: String,
+      },
     },
     isEmailVerified: {
       type: Boolean,
@@ -315,5 +344,41 @@ userSchema.statics.findByEmailOrUsername = function (identifier) {
     ],
   });
 };
+userSchema.methods.generateTwoFASecret = async function () {
+  const secret = speakeasy.generateSecret({
+    name: `YourAppName (${this.email})`,
+  });
+  this.twoFA.secret = secret.base32;
+  await this.save();
+  const qrCodeURL = await qrcode.toDataURL(secret.otpauth_url);
+  return {
+    secret: secret.base32,
+    otpauth_url: secret.otpauth_url,
+    qrCodeURL,
+  };
+};
+
+// Verifies the token entered by user
+userSchema.methods.verifyTwoFAToken = function (token) {
+  if (!this.twoFA.enabled || !this.twoFA.secret) return false;
+  return speakeasy.totp.verify({
+    secret: this.twoFA.secret,
+    encoding: "base32",
+    token,
+    window: 1,
+  });
+};
+
+userSchema.set("toJSON", {
+  transform: function (doc, ret) {
+    delete ret.password;
+    delete ret.twoFA?.secret;
+    delete ret.refreshToken;
+    delete ret.emailOTP;
+    delete ret.phoneOTP;
+    delete ret.passwordResetOTP;
+    return ret;
+  },
+});
 
 export const User = mongoose.model("User", userSchema);

@@ -1,16 +1,9 @@
-import crypto from "crypto";
 import jwt from "jsonwebtoken";
-import fs from "fs";
 import { User } from "../models/user.models.js";
+import { Chat } from "../models/chat.models.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import {
-  emailVerificationMailgenContent,
-  sendEmail,
-  forgotPasswordMailgenContent,
-} from "../utils/mail.js";
-import { UserLoginType } from "../constants.js";
 import cloudinary from "../config/cloudinary.js";
 import { bufferToStream } from "../utils/bufferToStream.js";
 import {
@@ -18,7 +11,8 @@ import {
   sendPhoneOTP,
   sendPasswordResetOTP,
 } from "../utils/otp.js";
-import { Readable } from "stream";
+import mongoose from "mongoose";
+const SENSITIVE_FIELDS = ["username", "email", "contact"];
 
 // Helper to generate tokens and save refreshToken
 const generateAccessAndRefreshTokens = async (userId) => {
@@ -82,12 +76,6 @@ const loginUser = asyncHandler(async (req, res) => {
 
   const user = await User.findOne({ $or: [{ username }, { email }] });
   if (!user) throw new ApiError(404, "User does not exist");
-
-  if (user.loginType !== UserLoginType.EMAIL_PASSWORD)
-    throw new ApiError(
-      400,
-      `Use ${user.loginType.toLowerCase()} login option.`,
-    );
 
   if (!user.isEmailVerified) {
     throw new ApiError(401, "Please verify your email before logging in.");
@@ -302,6 +290,40 @@ const updateUserAvatar = asyncHandler(async (req, res, next) => {
   bufferToStream(req.file.buffer).pipe(stream);
 });
 
+const updateProfile = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id);
+  if (!user) throw new ApiError(404, "User not found");
+
+  const updates = req.body;
+
+  const updatingSensitive = SENSITIVE_FIELDS.some((field) =>
+    Object.prototype.hasOwnProperty.call(updates, field),
+  );
+
+  if (updatingSensitive) {
+    if (!updates.token)
+      throw new ApiError(401, "2FA token is required for sensitive updates");
+
+    const is2FAValid = user.verifyTwoFAToken(updates.token);
+    if (!is2FAValid) throw new ApiError(401, "Invalid 2FA token");
+
+    delete updates.token; // remove token before updating
+  }
+
+  const allowedFields = ["name", "username", "email", "contact"];
+  allowedFields.forEach((field) => {
+    if (updates[field] !== undefined) {
+      user[field] = updates[field];
+    }
+  });
+
+  await user.save();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, user, "Profile updated successfully"));
+});
+
 const refreshAccessToken = asyncHandler(async (req, res) => {
   const incomingRefreshToken =
     req.cookies.refreshToken || req.body.refreshToken;
@@ -346,6 +368,83 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   }
 });
 
+const toggleFavorites = asyncHandler(async (req, res) => {
+  const { chatId } = req.body;
+  const user = await User.findById(req.user._id);
+  if (!user) throw new ApiError(404, "User not found");
+
+  const chat = await Chat.findById(chatId);
+  if (!chat) throw new ApiError(404, "Chat not found");
+
+  // Check if the chat is already in favorites by comparing the chat field
+  const existingFavorite = user.favorites.find(
+    (fav) => fav.user.toString() === chatId.toString(), // Assuming your schema has 'user' field storing chatId
+  );
+
+  let updatedUser;
+  let message;
+
+  if (existingFavorite) {
+    // Remove from favorites
+    updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { $pull: { favorites: { user: chatId } } },
+      { new: true },
+    );
+    message = "Removed from favorites";
+  } else {
+    // Add to favorites
+    updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { $addToSet: { favorites: { user: chatId } } },
+      { new: true },
+    );
+    message = "Added to favorites";
+  }
+
+  res.status(200).json({
+    success: true,
+    message: message,
+    favorites: updatedUser.favorites,
+  });
+});
+
+const toggleBlockContact = asyncHandler(async (req, res) => {
+  const { chatId } = req.body;
+
+  if (!mongoose.Types.ObjectId.isValid(chatId)) {
+    throw new ApiError(400, "Invalid chat ID");
+  }
+
+  const user = await User.findById(req.user._id);
+  if (!user) throw new ApiError(404, "User not found");
+
+  let updatedUser;
+  if (user.blockedUsers.includes(chatId)) {
+    // Remove from favorites
+    updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { $pull: { blockedUsers: chatId } },
+      { new: true },
+    );
+  } else {
+    // Add to favorites
+    updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { $addToSet: { blockedUsers: chatId } },
+      { new: true },
+    );
+  }
+
+  res.status(200).json({
+    success: true,
+    message: user.blockedUsers.includes(chatId)
+      ? "Unblocked Contact"
+      : "Blocked Contact",
+    blockedUsers: updatedUser.blockedUsers,
+  });
+});
+
 export {
   registerUser,
   loginUser,
@@ -360,4 +459,7 @@ export {
   changeCurrentPassword,
   getCurrentUser,
   updateUserAvatar,
+  updateProfile,
+  toggleFavorites,
+  toggleBlockContact,
 };

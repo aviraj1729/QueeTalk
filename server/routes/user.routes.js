@@ -12,6 +12,9 @@ import {
   getCurrentUser,
   updateUserAvatar,
   refreshAccessToken,
+  updateProfile,
+  toggleFavorites,
+  toggleBlockContact,
 } from "../controller/user.controller.js";
 
 import { Router } from "express";
@@ -69,5 +72,9 @@ router.post(
 );
 
 router.patch("/avatar", verifyJWT, upload.single("avatar"), updateUserAvatar);
+
+router.patch("/profile", verifyJWT, updateProfile);
+router.post("/favorites", verifyJWT, toggleFavorites);
+router.post("/block", verifyJWT, toggleBlockContact);
 
 export default router;

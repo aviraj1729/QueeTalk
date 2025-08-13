@@ -31,6 +31,7 @@ const chatMessageCommonAggregations = () => {
           {
             $project: {
               username: 1,
+              name: 1,
               avatar: 1,
               email: 1,
               contact: 1,
@@ -104,7 +105,7 @@ const sendMessage = asyncHandler(async (req, res) => {
         const uniqueFileName = `${uuidv4()}${fileExtension}`;
         const r2Key = `chat-attachments/${chatId}/${uniqueFileName}`;
 
-        const fileBuffer = fs.readFileSync(attachment.path);
+        const fileBuffer = attachment.buffer;
         const mimeType = attachment.mimetype || "application/octet-stream";
 
         // Detect type from mimetype
@@ -145,14 +146,6 @@ const sendMessage = asyncHandler(async (req, res) => {
         });
       } catch (err) {
         console.error(`❌ Error uploading file:`, err);
-
-        if (attachment.path && fs.existsSync(attachment.path)) {
-          try {
-            fs.unlinkSync(attachment.path);
-          } catch (cleanupErr) {
-            console.error("❌ Error cleaning up file:", cleanupErr);
-          }
-        }
 
         throw new ApiError(
           500,

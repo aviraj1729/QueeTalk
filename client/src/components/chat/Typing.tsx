@@ -1,15 +1,15 @@
-import { classNames } from "../../utils";
-
 const Typing = () => {
   return (
-    <div
-      className={classNames(
-        "p-5 rounded-3xl bg-secondary w-fit inline-flex gap-1.5",
-      )}
-    >
-      <span className="animation1 mx-[0.5px] h-2 w-2 bg-zinc-300 rounded-full"></span>
-      <span className="animation2 mx-[0.5px] h-2 w-2 bg-zinc-300 rounded-full"></span>
-      <span className="animation3 mx-[0.5px] h-2 w-2 bg-zinc-300 rounded-full"></span>
+    <div className="flex space-x-1 p-4">
+      <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
+      <div
+        className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+        style={{ animationDelay: "0.1s" }}
+      ></div>
+      <div
+        className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+        style={{ animationDelay: "0.2s" }}
+      ></div>
     </div>
   );
 };

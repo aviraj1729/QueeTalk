@@ -5,7 +5,7 @@ import { IoMdSearch, IoMdArrowBack } from "react-icons/io";
 import { MdOutlineGroupAdd } from "react-icons/md";
 import { LuLogOut } from "react-icons/lu";
 import { FiXCircle } from "react-icons/fi";
-
+import type { DeviceType } from "../utils";
 import Button from "../components/Button";
 import FormInput from "../components/FormInput";
 import Typing from "../components/chat/Typing";
@@ -13,7 +13,6 @@ import ChatListItem from "../components/chat/ChatListItem";
 import MessageComponent from "../components/chat/MessageComponent";
 import MessageBox from "../components/chat/MessageBox";
 import AddChat from "../components/chat/AddChat";
-
 import {
   getUserChats,
   getChatMessages,
@@ -27,9 +26,12 @@ import type {
   ChatListItemInterface,
 } from "../interfaces/chat";
 import {
+  BREAKPOINTS,
+  getLayoutConfig,
   LocalStorage,
   classNames,
   getChatObjectMetadata,
+  getInitials,
   requestHandler,
 } from "../utils";
 import ChatInfo from "../components/chat/ChatInfo";
@@ -54,6 +56,9 @@ const TYPING_TIMEOUT = 3000;
 
 type FilterType = (typeof FILTERS)[number];
 
+// Mobile view states
+type MobileView = "chat-list" | "chat-messages" | "chat-info";
+
 const ChatPage = () => {
   const { user, logout } = useAuth();
   const { socket } = useSocket();
@@ -69,6 +74,13 @@ const ChatPage = () => {
   const [openAddChat, setOpenAddChat] = useState(false);
   const [filter, setFilter] = useState<FilterType>("All");
   const [localSearchQuery, setLocalSearchQuery] = useState("");
+
+  // Mobile responsive state
+  const [deviceType, setDeviceType] = useState<DeviceType>("Desktop");
+  const [isMobile, setIsMobile] = useState(false);
+  const [isTablet, setIsTablet] = useState(false);
+
+  const [mobileView, setMobileView] = useState("chat-list");
 
   // Loading States
   const [loadingChats, setLoadingChats] = useState(false);
@@ -90,6 +102,17 @@ const ChatPage = () => {
 
   const [isInfoOpen, setIsInfoOpen] = useState(false);
 
+  // Check if screen is mobile/tablet
+  useEffect(() => {
+    const checkScreenSize = () => {
+      setIsMobile(window.innerWidth < 1024); // lg breakpoint
+    };
+
+    checkScreenSize();
+    window.addEventListener("resize", checkScreenSize);
+    return () => window.removeEventListener("resize", checkScreenSize);
+  }, []);
+
   // Memoized values
   const options = useMemo(
     () => [
@@ -98,6 +121,34 @@ const ChatPage = () => {
     ],
     [],
   );
+  const getDeviceType = (width) => {
+    if (width < BREAKPOINTS.md) return "mobile";
+    if (width < BREAKPOINTS.lg) return "tablet";
+    if (width < BREAKPOINTS.xl) return "desktop";
+    if (width < BREAKPOINTS["2xl"]) return "large-desktop";
+    return "4k-desktop";
+  };
+
+  const detectDeviceType = useCallback(() => {
+    const width = window.innerWidth;
+    console.log(width);
+    const newDeviceType = getDeviceType(width);
+
+    setDeviceType(newDeviceType);
+    setIsMobile(newDeviceType === "mobile");
+    setIsTablet(newDeviceType === "tablet");
+  }, []);
+
+  useEffect(() => {
+    detectDeviceType();
+
+    const handleResize = () => {
+      detectDeviceType();
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [detectDeviceType]);
 
   const filteredChats = useMemo(() => {
     if (!user) return [];
@@ -141,11 +192,20 @@ const ChatPage = () => {
     setAttachedFiles([]);
     setIsTyping(false);
     setSelfTyping(false);
-  }, [socket]);
+
+    // Handle mobile navigation
+    if (isMobile) {
+      setMobileView("chat-list");
+    }
+  }, [socket, isMobile]);
 
   const openGroupInfo = useCallback(() => {
-    setIsInfoOpen(false);
-  }, []);
+    if (isMobile) {
+      setMobileView("chat-info");
+    } else {
+      setIsInfoOpen(true);
+    }
+  }, [isMobile]);
 
   const handleOptionClick = useCallback(
     (id: string) => {
@@ -159,6 +219,7 @@ const ChatPage = () => {
     },
     [logout],
   );
+  const layoutConfig = getLayoutConfig(deviceType);
 
   const updateChatLastMessage = useCallback(
     (chatId: string, newMessage: ChatMessageInterface) => {
@@ -345,8 +406,13 @@ const ChatPage = () => {
       setMessage("");
       setAttachedFiles([]);
       getMessages();
+
+      // Handle mobile navigation
+      if (isMobile) {
+        setMobileView("chat-messages");
+      }
     },
-    [getMessages],
+    [getMessages, isMobile],
   );
 
   const removeAttachedFile = useCallback((index: number) => {
@@ -452,13 +518,21 @@ const ChatPage = () => {
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        closeCurrentChat();
+        if (isMobile && mobileView !== "chat-list") {
+          if (mobileView === "chat-info") {
+            setMobileView("chat-messages");
+          } else {
+            closeCurrentChat();
+          }
+        } else {
+          closeCurrentChat();
+        }
       }
     };
 
     window.addEventListener("keydown", handleEsc);
     return () => window.removeEventListener("keydown", handleEsc);
-  }, [closeCurrentChat]);
+  }, [closeCurrentChat, isMobile, mobileView]);
 
   useEffect(() => {
     getChats();
@@ -471,9 +545,14 @@ const ChatPage = () => {
         currentChat.current = savedChat;
         socket.emit(SOCKET_EVENTS.JOIN_CHAT, savedChat._id);
         getMessages();
+
+        // Set appropriate mobile view if needed
+        if (isMobile) {
+          setMobileView("chat-messages");
+        }
       }
     }
-  }, [socket, isConnected, getMessages]);
+  }, [socket, isConnected, getMessages, isMobile]);
 
   useEffect(() => {
     if (!socket) return;
@@ -513,19 +592,18 @@ const ChatPage = () => {
     onGroupNameChange,
     onMessageDelete,
   ]);
+  console.log(deviceType);
 
   // Render helpers
   const renderChatHeader = () => {
     if (!currentChat.current || !user) return null;
 
-    const chatMetadata = getChatObjectMetadata(currentChat.current, user);
+    const chatMetadata = getChatObjectMetadata(currentChat.current, user!);
+    const initials = getInitials(chatMetadata.title);
 
     return (
-      <div
-        className="p-4 sticky top-0 z-20 flex justify-between items-center w-full border-b-4 border-gray-800 cursor-pointer"
-        onClick={() => setIsInfoOpen(true)}
-      >
-        <div className="flex justify-start items-center w-max gap-3">
+      <div className="p-4 sticky top-0 z-20 flex justify-between items-center w-full border-b-4 border-gray-800 bg-white dark:bg-gray-900">
+        <div className="flex justify-start items-center gap-3 w-full">
           <Button
             variant="icon"
             onClick={closeCurrentChat}
@@ -534,21 +612,34 @@ const ChatPage = () => {
             <IoMdArrowBack className="w-6 h-6 text-white" />
           </Button>
 
-          {currentChat.current.isGroupChat ? (
-            <GroupAvatar
-              participants={currentChat.current?.participants}
-              size={40}
-            />
-          ) : (
-            <img
-              className="h-12 w-12 rounded-full flex flex-shrink-0 object-cover"
-              src={chatMetadata.avatar}
-              alt="Chat avatar"
-            />
-          )}
-          <div className="ml-2">
-            <p className="font-bold">{chatMetadata.title}</p>
-            <small className="text-zinc-400">{chatMetadata.description}</small>
+          <div
+            className="flex items-center gap-3 cursor-pointer"
+            onClick={openGroupInfo}
+          >
+            {currentChat.current.isGroupChat ? (
+              <GroupAvatar
+                participants={currentChat.current?.participants}
+                size={40}
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-700 text-white flex items-center justify-center text-lg font-bold overflow-hidden outline outline-1 outline-gray-500">
+                {chatMetadata.avatar ? (
+                  <img
+                    src={chatMetadata.avatar}
+                    alt={initials}
+                    className="object-cover w-full h-full"
+                  />
+                ) : (
+                  initials
+                )}
+              </div>
+            )}
+            <div>
+              <p className="font-bold">{chatMetadata.title}</p>
+              <small className="text-zinc-400">
+                {chatMetadata.description}
+              </small>
+            </div>
           </div>
         </div>
       </div>
@@ -559,11 +650,11 @@ const ChatPage = () => {
     if (attachedFiles.length === 0) return null;
 
     return (
-      <div className="relative grid gap-4 grid-cols-5 p-4 justify-start max-w-fit">
+      <div className="relative grid gap-4 grid-cols-3 sm:grid-cols-5 p-4 justify-start max-w-fit">
         {attachedFiles.map((file, index) => (
           <div
             key={index}
-            className="group w-32 h-32 relative aspect-square rounded-xl cursor-pointer"
+            className="group w-20 h-20 sm:w-32 sm:h-32 relative aspect-square rounded-xl cursor-pointer"
           >
             <button
               onClick={() => removeAttachedFile(index)}
@@ -584,185 +675,247 @@ const ChatPage = () => {
   };
 
   const renderEmptyState = () => (
-    <div className="flex bg-neutral-100 dark:bg-gray-900 flex-col gap-4 w-full h-full items-center justify-center">
-      <img src="/icon.png" width="150" alt="QueeTalk logo" />
-      <h1 className="text-4xl font-bold">QueeTalk</h1>
-      <p className="text-xl">
+    <div className="flex bg-neutral-100 dark:bg-gray-900 flex-col gap-4 w-full h-full items-center justify-center p-4">
+      <img
+        src="/icon.png"
+        width="150"
+        alt="QueeTalk logo"
+        className="max-w-[120px] sm:max-w-[150px]"
+      />
+      <h1 className="text-3xl sm:text-4xl font-bold text-center">QueeTalk</h1>
+      <p className="text-lg sm:text-xl text-center">
         Send and receive messages from friends and groups.
       </p>
     </div>
   );
 
-  return (
-    <div className="flex h-full w-full">
-      <AddChat
-        open={openAddChat}
-        onClose={() => setOpenAddChat(false)}
-        onSuccess={getChats}
-      />
-
-      {/* Chat List Sidebar */}
-      <div className="w-fit flex flex-col border-r-4 border-gray-300 dark:border-gray-800 relative p-4 h-full">
-        {/* Header */}
-        <div className="flex flex-row">
-          <h2 className="text-4xl dark:text-white text-green-500 font-bold mb-4">
-            QueeTalk
-          </h2>
-          <div className="absolute flex flex-row right-0 gap-4 mr-4">
+  const renderChatList = () => (
+    <div
+      className={classNames(
+        "flex flex-col border-gray-300 dark:border-gray-800 relative p-4 h-full bg-white dark:bg-gray-900",
+        isMobile ? "w-full" : "w-fit border-r-4",
+      )}
+    >
+      {/* Header */}
+      <div className="flex flex-row items-center justify-between mb-4">
+        <h2 className="text-3xl sm:text-4xl dark:text-white text-green-500 font-bold">
+          QueeTalk
+        </h2>
+        <div className="flex flex-row gap-2 sm:gap-4">
+          <Button
+            variant="icon"
+            className="rounded-full"
+            onClick={() => setOpenAddChat(true)}
+          >
+            <RiChatNewLine className="w-6 h-6 sm:w-8 sm:h-8" />
+          </Button>
+          <div className="relative" ref={dropdownRef}>
             <Button
               variant="icon"
               className="rounded-full"
-              onClick={() => setOpenAddChat(true)}
+              onClick={() => setShowDropdown((prev) => !prev)}
             >
-              <RiChatNewLine className="w-8 h-8" />
+              <BsThreeDotsVertical className="w-5 h-5 sm:w-6 sm:h-6" />
             </Button>
-            <div className="relative" ref={dropdownRef}>
-              <Button
-                variant="icon"
-                className="rounded-full"
-                onClick={() => setShowDropdown((prev) => !prev)}
-              >
-                <BsThreeDotsVertical className="w-6 h-6" />
-              </Button>
 
-              {showDropdown && (
-                <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-gray-800 text-black dark:text-white text-sm shadow-lg rounded-lg overflow-hidden z-50">
-                  {options.map((option) => (
-                    <button
-                      key={option.id}
-                      className={classNames(
-                        "block px-3 py-2 w-full text-left transition-colors",
-                        option.id === "Log Out"
-                          ? "hover:bg-red-100 dark:hover:bg-red-900 hover:text-red-800 dark:hover:text-red-200"
-                          : "hover:bg-gray-100 dark:hover:bg-gray-700",
-                      )}
-                      onClick={() => handleOptionClick(option.id)}
-                    >
-                      <div className="flex items-center gap-4">
-                        {option.icon}
-                        <span>{option.id}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Search */}
-        <FormInput
-          type="text"
-          className="w-full bg-transparent rounded-full outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-          placeholder="Search or start a new chat"
-          value={localSearchQuery}
-          onChange={(e) => setLocalSearchQuery(e.target.value)}
-          icon={<IoMdSearch className="w-5 h-5" />}
-        />
-
-        {/* Filters */}
-        <div className="flex flex-row gap-3 my-4">
-          {FILTERS.map((item) => (
-            <Button
-              key={item}
-              variant="outline"
-              className="rounded-full"
-              isActive={filter === item}
-              onClick={() => setFilter(item)}
-            >
-              {item}
-            </Button>
-          ))}
-        </div>
-
-        {/* Chat List */}
-        {loadingChats ? (
-          <div className="flex justify-center items-center h-[calc(100%-88px)]">
-            <Typing />
-          </div>
-        ) : (
-          <div className="flex-1 overflow-y-auto">
-            {filteredChats.map((chat) => (
-              <ChatListItem
-                key={chat._id}
-                chat={chat}
-                isActive={chat._id === currentChat.current?._id}
-                unreadCount={
-                  unreadMessages.filter((msg) => msg.chat === chat._id).length
-                }
-                onClick={selectChat}
-                activeDropdown={activeDropdown}
-                onDropdownToggle={setActiveDropdown}
-                onChatDelete={handleChatDelete}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Chat Area */}
-      <div className="w-full h-screen overflow-hidden flex">
-        {currentChat.current?._id ? (
-          <>
-            <div className="flex flex-col flex-1">
-              {renderChatHeader()}
-
-              {/* Messages + Attachments + Input */}
-              <div className="flex flex-col flex-1 overflow-hidden">
-                {/* Message list should scroll */}
-                <div
-                  className="flex-1 overflow-y-auto px-6 pt-6 pb-4 flex flex-col-reverse gap-6"
-                  id="chat-window"
-                >
-                  {loadingMessages ? (
-                    <div className="flex justify-center items-center">
-                      <Typing />
+            {showDropdown && (
+              <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-gray-800 text-black dark:text-white text-sm shadow-lg rounded-lg overflow-hidden z-50">
+                {options.map((option) => (
+                  <button
+                    key={option.id}
+                    className={classNames(
+                      "block px-3 py-2 w-full text-left transition-colors",
+                      option.id === "Log Out"
+                        ? "hover:bg-red-100 dark:hover:bg-red-900 hover:text-red-800 dark:hover:text-red-200"
+                        : "hover:bg-gray-100 dark:hover:bg-gray-700",
+                    )}
+                    onClick={() => handleOptionClick(option.id)}
+                  >
+                    <div className="flex items-center gap-4">
+                      {option.icon}
+                      <span>{option.id}</span>
                     </div>
-                  ) : (
-                    <>
-                      {isTyping && <Typing />}
-                      {messages.map((msg) => (
-                        <MessageComponent
-                          key={msg._id}
-                          isOwnMessage={msg.sender?._id === user?._id}
-                          isGroupChatMessage={currentChat.current?.isGroupChat}
-                          message={msg}
-                          deleteChatMessage={deleteChatMessage}
-                        />
-                      ))}
-                    </>
-                  )}
-                </div>
-
-                {/* Attached Files (non-sticky, will push input down) */}
-                {renderAttachedFiles()}
-
-                {/* Sticky input */}
-                <div className="sticky bottom-0 p-4 flex justify-between items-center w-full gap-2 z-10">
-                  <MessageBox
-                    onMessageChange={handleOnMessageChange}
-                    message={message}
-                    onSend={sendChatMessage}
-                    onFileSend={(files, msg) =>
-                      sendChatMessage(msg || "", files)
-                    } // ✅ This should now work
-                    chatId={currentChat.current?._id}
-                    isTyping={isTyping}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Right Panel */}
-            {isInfoOpen && (
-              <div className="md:w-[400px] h-screen border-l border-gray-300 dark:border-gray-800">
-                <ChatInfo
-                  isOpen={isInfoOpen}
-                  onClose={() => setIsInfoOpen(false)}
-                  data={currentChat.current}
-                />
+                  </button>
+                ))}
               </div>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Search */}
+      <FormInput
+        type="text"
+        className={`${isMobile ? "w-50" : ""} bg-transparent rounded-full outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent mb-4`}
+        placeholder="Search or start a new chat"
+        value={localSearchQuery}
+        onChange={(e) => setLocalSearchQuery(e.target.value)}
+        icon={<IoMdSearch className="w-5 h-5" />}
+      />
+
+      {/* Filters */}
+      <div className="flex flex-row gap-2 sm:gap-3 my-4 overflow-x-auto">
+        {FILTERS.map((item) => (
+          <Button
+            key={item}
+            variant="outline"
+            className="rounded-full whitespace-nowrap"
+            isActive={filter === item}
+            onClick={() => setFilter(item)}
+          >
+            {item}
+          </Button>
+        ))}
+      </div>
+
+      {/* Chat List */}
+      {loadingChats ? (
+        <div className="flex justify-center items-center flex-1">
+          <Typing />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto">
+          {filteredChats.map((chat) => (
+            <ChatListItem
+              key={chat._id}
+              chat={chat}
+              setChatInfoOpen={setIsInfoOpen}
+              isActive={chat._id === currentChat.current?._id}
+              unreadCount={
+                unreadMessages.filter((msg) => msg.chat === chat._id).length
+              }
+              onClick={selectChat}
+              activeDropdown={activeDropdown}
+              onDropdownToggle={setActiveDropdown}
+              onChatDelete={handleChatDelete}
+              deviceType={deviceType}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderChatMessages = () => (
+    <div className="flex flex-col flex-1 h-full bg-white dark:bg-gray-900">
+      {renderChatHeader()}
+
+      {/* Messages + Attachments + Input */}
+      <div className="flex flex-col flex-1 overflow-hidden">
+        {/* Message list should scroll */}
+        <div
+          className="flex-1 overflow-y-auto px-4 sm:px-6 pt-6 pb-4 flex flex-col-reverse gap-6 scrollbar"
+          id="chat-window"
+        >
+          {loadingMessages ? (
+            <div className="flex justify-center items-center">
+              <Typing />
+            </div>
+          ) : (
+            <>
+              {isTyping && <Typing />}
+              {messages.map((msg) => (
+                <MessageComponent
+                  key={msg._id}
+                  isOwnMessage={msg.sender?._id === user?._id}
+                  isGroupChatMessage={currentChat.current?.isGroupChat}
+                  message={msg}
+                  deleteChatMessage={deleteChatMessage}
+                  deviceType={deviceType}
+                />
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Attached Files (non-sticky, will push input down) */}
+        {renderAttachedFiles()}
+
+        {/* Sticky input */}
+        <div className="sticky bottom-0 p-4 flex justify-between items-center w-full gap-2 z-10 bg-white dark:bg-gray-900">
+          <MessageBox
+            onMessageChange={handleOnMessageChange}
+            message={message}
+            onSend={sendChatMessage}
+            onFileSend={(files, msg) => sendChatMessage(msg || "", files)}
+            chatId={currentChat.current?._id}
+            isTyping={isTyping}
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderChatInfo = () => (
+    <div
+      className={classNames(
+        "h-full border-gray-300 dark:border-gray-800 bg-white dark:bg-gray-900",
+        isMobile || isTablet ? "w-full" : "w-[400px] border-l-4",
+      )}
+    >
+      <ChatInfo
+        isOpen={true}
+        onClose={() => {
+          if (isMobile) {
+            setMobileView("chat-messages");
+          } else if (isTablet) {
+            setMobileView("chat-messages");
+          } else {
+            setIsInfoOpen(false);
+          }
+        }}
+        data={currentChat.current}
+      />
+    </div>
+  );
+
+  // Main render logic
+  if (isMobile) {
+    return (
+      <div className="flex h-full w-full overflow-hidden bg-gray-50 dark:bg-gray-900">
+        {/* Mobile Single Panel View */}
+        {mobileView === "chat-list" && renderChatList()}
+        {mobileView === "chat-messages" &&
+          currentChat.current?._id &&
+          renderChatMessages()}
+        {mobileView === "chat-info" &&
+          currentChat.current?._id &&
+          renderChatInfo()}
+        {mobileView === "chat-messages" &&
+          !currentChat.current?._id &&
+          renderEmptyState()}
+      </div>
+    );
+  }
+  if (isTablet) {
+    return (
+      <div className="h-full w-full flex">
+        {mobileView !== "chat-info" && renderChatList()}
+
+        <div className="flex-1">
+          {mobileView === "chat-info" && currentChat
+            ? renderChatInfo()
+            : currentChat
+              ? renderChatMessages()
+              : renderEmptyState()}
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop/Tablet view render
+  return (
+    <div className="flex h-full w-full bg-gray-50 dark:bg-gray-900">
+      {/* Chat List Sidebar */}
+      {renderChatList()}
+
+      {/* Main Chat Area */}
+      <div className="flex-1 h-full overflow-hidden flex min-w-0">
+        {currentChat.current?._id ? (
+          <>
+            {renderChatMessages()}
+            {/* Right Info Panel */}
+            {isInfoOpen && currentChat.current?._id && renderChatInfo()}
           </>
         ) : (
           renderEmptyState()

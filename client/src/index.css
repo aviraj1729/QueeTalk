@@ -2,4 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
-@custom-variant dark (&:where(.dark, .dark *));
+@layer utilities {
+  /* Light mode scrollbar (default) */
+  .scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .scrollbar::-webkit-scrollbar-track {
+    border-radius: 100vh;
+  }
+
+  .scrollbar::-webkit-scrollbar-thumb {
+    background: #000;
+    border-radius: 100vh;
+    border: 2px solid #f6f7ed;
+  }
+
+  .scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #333;
+  }
+
+  /* Dark mode scrollbar (applies when .dark class is on html or parent) */
+  .dark .scrollbar::-webkit-scrollbar-thumb {
+    background: #e5e7eb; /* Tailwind gray-200 */
+    border: 2px solid #1f2937;
+  }
+
+  .dark .scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #d1d5db; /* Tailwind gray-300 */
+  }
+}

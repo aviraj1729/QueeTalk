@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Play, Pause } from "lucide-react";
+import { audioEvents } from "./AudioEvents";
 
 const TOTAL_BARS = 40;
 const MAX_BAR_HEIGHT = 20;
@@ -17,6 +18,9 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
   const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const animationRef = useRef<number>();
   const audioBufferRef = useRef<AudioBuffer | null>(null);
+  const playerIdRef = useRef<string>(
+    `player-${Math.random().toString(36).substr(2, 9)}`,
+  );
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState("0:00");
@@ -24,25 +28,36 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
   const [peaks, setPeaks] = useState<number[]>([]);
   const [progress, setProgress] = useState(0);
 
+  // Listen for pause events from other players
+  useEffect(() => {
+    const handlePauseAll = (event: CustomEvent) => {
+      const currentPlayerId = event.detail?.playerId;
+      // Only pause if this isn't the player that's starting to play
+      if (currentPlayerId !== playerIdRef.current && audioRef.current) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+      }
+    };
+
+    audioEvents.addEventListener("pauseAll", handlePauseAll as EventListener);
+    return () => {
+      audioEvents.removeEventListener(
+        "pauseAll",
+        handlePauseAll as EventListener,
+      );
+    };
+  }, []);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
     const handleLoadedMetadata = () => {
-      if (!isFinite(audio.duration)) {
-        const onTimeUpdate = () => {
-          if (isFinite(audio.duration)) {
-            setDuration(formatTime(audio.duration));
-            audio.removeEventListener("timeupdate", onTimeUpdate);
-          }
-        };
-        audio.addEventListener("timeupdate", onTimeUpdate);
-        audio.currentTime = 1e10; // force browser to estimate real duration
-      } else {
+      if (isFinite(audio.duration)) {
         setDuration(formatTime(audio.duration));
+      } else {
+        loadAudioBuffer(); // fallback to buffer decode
       }
-
-      loadAudioBuffer();
     };
 
     const handleTimeUpdate = () => {
@@ -56,9 +71,6 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
     const handleEnded = () => {
       setIsPlaying(false);
       setProgress(0);
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
     };
 
     audio.addEventListener("loadedmetadata", handleLoadedMetadata);
@@ -70,10 +82,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
       audio.removeEventListener("timeupdate", handleTimeUpdate);
       audio.removeEventListener("ended", handleEnded);
 
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
       if (
         audioContextRef.current &&
         audioContextRef.current.state !== "closed"
@@ -97,6 +106,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
 
       audioBufferRef.current = audioBuffer;
       generateWaveformFromBuffer(audioBuffer);
+      setDuration(formatTime(audioBuffer.duration));
     } catch (error) {
       console.error("Error loading audio buffer:", error);
       generateFallbackWaveform();
@@ -104,7 +114,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
   };
 
   const generateWaveformFromBuffer = (audioBuffer: AudioBuffer) => {
-    const channelData = audioBuffer.getChannelData(0); // Get first channel
+    const channelData = audioBuffer.getChannelData(0);
     const samplesPerBar = Math.floor(channelData.length / TOTAL_BARS);
     const waveformPeaks: number[] = [];
 
@@ -112,20 +122,13 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
       const start = i * samplesPerBar;
       const end = start + samplesPerBar;
       let max = 0;
-
-      // Find the maximum absolute amplitude in this segment
       for (let j = start; j < end && j < channelData.length; j++) {
         const amplitude = Math.abs(channelData[j]);
-        if (amplitude > max) {
-          max = amplitude;
-        }
+        if (amplitude > max) max = amplitude;
       }
-
-      // Normalize the peak value
       waveformPeaks.push(max);
     }
 
-    // Normalize all peaks to 0-1 range
     const maxPeak = Math.max(...waveformPeaks);
     const normalizedPeaks = waveformPeaks.map((peak) =>
       maxPeak > 0 ? peak / maxPeak : 0.1,
@@ -136,18 +139,15 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
   };
 
   const generateFallbackWaveform = () => {
-    // Fallback waveform with varied heights
     const fallbackPeaks = Array.from({ length: TOTAL_BARS }, (_, i) => {
       const wave1 = Math.sin(i * 0.15) * 0.4;
       const wave2 = Math.sin(i * 0.25) * 0.3;
       const wave3 = Math.sin(i * 0.08) * 0.2;
       const noise = (Math.random() - 0.5) * 0.3;
-
       const envelope = 0.3 + 0.7 * Math.sin((i / TOTAL_BARS) * Math.PI);
 
       let amplitude = (wave1 + wave2 + wave3 + noise) * envelope;
       amplitude = Math.max(0.1, Math.min(1, Math.abs(amplitude)));
-
       return amplitude;
     });
 
@@ -191,10 +191,13 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
       if (isPlaying) {
         audio.pause();
         setIsPlaying(false);
-        if (animationRef.current) {
-          cancelAnimationFrame(animationRef.current);
-        }
       } else {
+        // Pause all other players first (but not this one)
+        const pauseEvent = new CustomEvent("pauseAll", {
+          detail: { playerId: playerIdRef.current },
+        });
+        audioEvents.dispatchEvent(pauseEvent);
+
         if (!sourceRef.current) {
           await setupAudioForPlayback();
         }
@@ -231,14 +234,11 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
     const progressPoint = (currentProgress / 100) * TOTAL_BARS;
 
     peaksData.forEach((peak, i) => {
-      // Height based on actual audio amplitude
       const height = MIN_BAR_HEIGHT + peak * (MAX_BAR_HEIGHT - MIN_BAR_HEIGHT);
       const x = i * (barWidth + 1);
       const y = (MAX_BAR_HEIGHT - height) / 2;
-
       const isPlayed = i < progressPoint;
       ctx.fillStyle = isPlayed ? "#555555" : "#959595";
-
       const radius = Math.min(barWidth / 2, 1);
       ctx.beginPath();
       ctx.roundRect(x, y, barWidth, height, radius);
@@ -276,7 +276,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
   };
 
   return (
-    <div className="flex items-center gap-3 rounded-full w-[300px]">
+    <div className="flex items-center gap-3 rounded-full sm:w-[300px] w-[200px]">
       <audio
         ref={audioRef}
         src={src}
@@ -284,11 +284,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src }) => {
         crossOrigin="anonymous"
       />
 
-      <button
-        onClick={togglePlay}
-        className="flex-shrink-0"
-        aria-label={isPlaying ? "Pause" : "Play"}
-      >
+      <button onClick={togglePlay} className="flex-shrink-0">
         {isPlaying ? (
           <Pause size={14} fill="white" />
         ) : (

@@ -9,7 +9,13 @@ import { LuLogOut } from "react-icons/lu";
 import { formatMessageTime } from "../../utils/formatTime";
 import { ChatListItemInterface } from "../../interfaces/chat";
 import { useAuth } from "../../contexts/AuthContext";
-import { requestHandler, getChatObjectMetadata, classNames } from "../../utils";
+import {
+  requestHandler,
+  getChatObjectMetadata,
+  classNames,
+  getInitials,
+  DeviceType,
+} from "../../utils";
 import { deleteOneOnOneChat } from "../../api";
 import GroupAvatar from "./GroupAvatar";
 
@@ -17,9 +23,11 @@ const ChatListItem: React.FC<{
   chat: ChatListItemInterface;
   onClick: (chat: ChatListItemInterface) => void;
   isActive?: boolean;
+  setChatInfoOpen?: boolean;
   unreadCount?: number;
   onChatDelete: (chatId: string) => void;
   activeDropdown: string | null;
+  deviceType: DeviceType;
   onDropdownToggle: (
     id: string | null,
     position?: { top: number; left: number },
@@ -28,24 +36,50 @@ const ChatListItem: React.FC<{
   chat,
   onClick,
   isActive,
+  setChatInfoOpen,
   unreadCount = 0,
   onChatDelete,
   activeDropdown,
   onDropdownToggle,
+  deviceType,
 }) => {
   const { user } = useAuth();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const isDropdownOpen = activeDropdown === chat._id;
 
-  const [openGroupInfo, setOpenGroupInfo] = useState(false);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>(
     { top: 0, left: 0 },
   );
+  const metaData = getChatObjectMetadata(chat, user!);
+  const initials = getInitials(metaData.title);
+  const getAvatarSize = () => {
+    switch (deviceType) {
+      case "mobile":
+        return 10;
+      case "tablet":
+        return 12;
+      default:
+        return 14;
+    }
+  };
+
+  const getTextSizes = () => {
+    switch (deviceType) {
+      case "mobile":
+        return { name: "text-sm", message: "text-xs", time: "text-xs" };
+      case "tablet":
+        return { name: "text-base", message: "text-sm", time: "text-xs" };
+      default:
+        return { name: "text-lg", message: "text-sm", time: "text-sm" };
+    }
+  };
+
+  const textSizes = getTextSizes();
 
   const options = [
     { id: "About", icon: <BsInfoCircle size={16} /> },
-    { id: "Clear Chat", icon: <FiMinusCircle size={16} /> },
     { id: "Add to Favourite", icon: <FaRegHeart size={16} /> },
+    { id: "Clear Chat", icon: <FiMinusCircle size={16} /> },
     ...(chat.isGroupChat
       ? [{ id: "Exit Group", icon: <LuLogOut size={16} /> }]
       : [{ id: "Block", icon: <MdBlock size={16} /> }]),
@@ -64,7 +98,8 @@ const ChatListItem: React.FC<{
 
   const handleOptionClick = (optionId: string) => {
     if (optionId === "About") {
-      setOpenGroupInfo(true);
+      onClick(chat);
+      setChatInfoOpen(true);
     }
     onDropdownToggle(null);
   };
@@ -92,16 +127,33 @@ const ChatListItem: React.FC<{
           isActive
             ? "dark:bg-gray-800 bg-gray-200"
             : "hover:bg-gray-200 dark:hover:bg-gray-800",
+          deviceType === "mobile" ? "p-2" : "",
         )}
       >
         <div className="flex justify-center items-center flex-shrink-0">
           {chat.isGroupChat ? (
-            <GroupAvatar participants={chat.participants} size={40} />
-          ) : (
-            <img
-              src={getChatObjectMetadata(chat, user!).avatar}
-              className="w-12 h-12 rounded-full"
+            <GroupAvatar
+              participants={chat.participants}
+              size={getAvatarSize() * 3.2}
             />
+          ) : (
+            <div
+              className={`size-12 rounded-full bg-gray-300 dark:bg-gray-700 text-white flex items-center justify-center text-lg font-bold overflow-hidden outline outline-1 outline-gray-500`}
+            >
+              {metaData.avatar ? (
+                <img
+                  src={metaData.avatar}
+                  alt={initials}
+                  className="object-cover w-full h-full"
+                />
+              ) : (
+                <span
+                  className={deviceType === "mobile" ? "text-xs" : "text-sm"}
+                >
+                  {initials}
+                </span>
+              )}
+            </div>
           )}
         </div>
 
@@ -115,19 +167,21 @@ const ChatListItem: React.FC<{
             </small>
           </div>
           <div className="flex justify-between">
-            <div className="w-full flex flex-row items-center">
+            <div className="w-full flex flex-row items-center truncate">
               {chat.lastMessage && chat.lastMessage.attachments.length > 0 && (
                 <MdAttachFile className="h-4 w-4 flex-shrink-0" />
               )}
               <small
-                className={`truncate text-md ${unreadCount > 0 ? "text-green-500" : ""}`}
+                className={`lastmessage text-md break-words whitespace-normal ${unreadCount > 0 ? "text-green-500" : ""}`}
               >
-                {getChatObjectMetadata(chat, user!).lastMessage}
+                {getChatObjectMetadata(chat, user!).lastMessage.length > 35
+                  ? `${getChatObjectMetadata(chat, user!).lastMessage.substring(0, 35)}.....`
+                  : getChatObjectMetadata(chat, user!).lastMessage}
               </small>
             </div>
             {unreadCount > 0 && (
               <span className="bg-green-500 h-2 w-2 flex-shrink-0 p-2 text-white text-base rounded-full inline-flex justify-center items-center">
-                {unreadCount > 9 ? "9+" : unreadCount}
+                {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
             <button
@@ -152,7 +206,9 @@ const ChatListItem: React.FC<{
                 key={option.id}
                 onClick={() => handleOptionClick(option.id)}
                 className={`block px-3 py-2 w-full text-left transition-colors ${
-                  option.id === "Exit"
+                  option.id === "Exit Group" ||
+                  option.id === "Clear Chat" ||
+                  option.id === "Block"
                     ? "hover:bg-red-100 dark:hover:bg-red-900 hover:text-red-800 dark:hover:text-red-200"
                     : "hover:bg-gray-100 dark:hover:bg-gray-700"
                 }`}

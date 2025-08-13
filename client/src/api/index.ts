@@ -72,7 +72,11 @@ const verifyOTP = (data: { otpId: string; otp: string }) => {
 const logoutUser = () => apiClient.post("/auth/logout");
 
 const currentUser = () => apiClient.get("/auth/current-user");
-
+const updateAvatar = (avatar: File) => {
+  const formData = new FormData();
+  formData.append("avatar", avatar);
+  return apiClient.patch("/auth/avatar", formData);
+};
 const getAvailableUsers = () => apiClient.get("/chatty/chats/users");
 const getUserChats = () => apiClient.get("/chatty/chats");
 const createUserChat = (receiverId: string) =>
@@ -122,6 +126,7 @@ export {
   registerUser,
   loginUser,
   changeUserPassword,
+  updateAvatar,
   logoutUser,
   sendOTP,
   verifyOTP,
